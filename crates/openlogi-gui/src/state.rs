@@ -2,7 +2,7 @@
 //!
 //! Anything that more than one view needs to read (current device, currently
 //! armed button, the DPI value the panel and the dot-preview share) lives
-//! here. Per-component scratch state (hover index, gesture point buffer) stays
+//! here. Per-component scratch state (hover index) stays
 //! in the owning entity.
 //!
 //! [`AppState::with_runtime`] resolves every paired device's asset + DPI

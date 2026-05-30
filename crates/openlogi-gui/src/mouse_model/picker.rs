@@ -139,6 +139,7 @@ fn gesture_directions_list<T: 'static>(
     v_flex()
         .min_w(px(POPOVER_W))
         .child(title("Gesture Button", pal))
+        .child(pending_note(pal))
         .child(divider(pal))
         .children(rows)
         .into_any_element()
@@ -303,6 +304,18 @@ fn title(text: impl Into<gpui::SharedString>, pal: Palette) -> impl IntoElement 
 /// 1px hairline separating the title/back header from the list.
 fn divider(pal: Palette) -> impl IntoElement {
     div().mb_1().h(px(1.)).w_full().bg(pal.border)
+}
+
+/// Honest caption for the gesture picker: the five direction bindings persist
+/// to config, but nothing dispatches them yet — the hook can't capture the
+/// gesture button until the HID++ `0x6500` path lands. Drop this once it does.
+fn pending_note(pal: Palette) -> impl IntoElement {
+    div()
+        .px_2()
+        .pb_1()
+        .text_xs()
+        .text_color(pal.text_muted)
+        .child("Saved, but not active yet — gesture capture is pending.")
 }
 
 /// Wrap `rows` in the height-capped, vertically scrollable list region.
