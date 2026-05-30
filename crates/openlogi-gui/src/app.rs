@@ -166,7 +166,7 @@ impl Render for AppView {
             .on_action(|_: &Zoom, window, _| window.zoom_window())
             .child(header(&self.carousel, pal))
             .child(body(&self.mouse_model, &self.dpi_panel))
-            .child(footer(pal))
+            .child(footer(pal, granted))
             .into_any_element()
     }
 }
@@ -202,7 +202,7 @@ fn body(mouse_model: &Entity<MouseModelView>, dpi_panel: &Entity<DpiPanel>) -> i
         .child(dpi_panel.clone())
 }
 
-fn footer(pal: Palette) -> impl IntoElement {
+fn footer(pal: Palette, granted: bool) -> impl IntoElement {
     h_flex()
         .h(px(FOOTER_H))
         .w_full()
@@ -235,10 +235,40 @@ fn footer(pal: Palette) -> impl IntoElement {
                         .on_click(|_, _, cx| crate::windows::about::open(cx)),
                 ),
         )
+        .child(accessibility_status(pal, granted))
         .child(
             div()
                 .text_xs()
                 .text_color(pal.text_muted)
                 .child(concat!("v", env!("CARGO_PKG_VERSION"))),
         )
+}
+
+/// Footer Accessibility-permission indicator. Granted → a muted green-dot
+/// status; not granted → an amber-dot affordance that requests the grant on
+/// click (the native prompt + System Settings, via [`open_accessibility_settings`]).
+fn accessibility_status(pal: Palette, granted: bool) -> AnyElement {
+    let dot = |color: u32| div().size_2().rounded_full().bg(rgb(color));
+    if granted {
+        h_flex()
+            .gap_2()
+            .items_center()
+            .text_xs()
+            .text_color(pal.text_muted)
+            .child(dot(theme::STATUS_CONNECTED))
+            .child(div().child("辅助功能已授权"))
+            .into_any_element()
+    } else {
+        h_flex()
+            .id("footer-accessibility")
+            .gap_2()
+            .items_center()
+            .text_xs()
+            .text_color(pal.text_primary)
+            .cursor_pointer()
+            .child(dot(theme::STATUS_CONNECTING))
+            .child(div().child("辅助功能未授权 · 点击授权"))
+            .on_click(|_, _, _| open_accessibility_settings())
+            .into_any_element()
+    }
 }
