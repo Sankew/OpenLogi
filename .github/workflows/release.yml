@@ -39,6 +39,8 @@ jobs:
           APPLE_ID: ${{ secrets.OP_APPLE_SECRET_ITEM }}/APPLE_ID
           APPLE_PASSWORD: ${{ secrets.OP_APPLE_SECRET_ITEM }}/APPLE_PASSWORD
           APPLE_TEAM_ID: ${{ secrets.OP_APPLE_SECRET_ITEM }}/APPLE_TEAM_ID
+          GITHUB_APP_ID: ${{ secrets.OP_HOMEBREW_TAP_APP_ITEM }}/GITHUB_APP_ID
+          GITHUB_APP_PRIVATE_KEY: ${{ secrets.OP_HOMEBREW_TAP_APP_ITEM }}/GITHUB_APP_PRIVATE_KEY
 
       - name: Install packaging tools
         run: |
@@ -54,6 +56,8 @@ jobs:
           APPLE_ID: ${{ steps.load_secrets.outputs.APPLE_ID }}
           APPLE_PASSWORD: ${{ steps.load_secrets.outputs.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ steps.load_secrets.outputs.APPLE_TEAM_ID }}
+          GITHUB_APP_ID: ${{ steps.load_secrets.outputs.GITHUB_APP_ID }}
+          GITHUB_APP_PRIVATE_KEY: ${{ steps.load_secrets.outputs.GITHUB_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           : "${APPLE_SIGNING_IDENTITY:?Configure APPLE_SIGNING_IDENTITY in 1Password}"
@@ -62,6 +66,8 @@ jobs:
           : "${APPLE_ID:?Configure APPLE_ID in 1Password}"
           : "${APPLE_PASSWORD:?Configure APPLE_PASSWORD in 1Password}"
           : "${APPLE_TEAM_ID:?Configure APPLE_TEAM_ID in 1Password}"
+          : "${GITHUB_APP_ID:?Configure GITHUB_APP_ID in 1Password}"
+          : "${GITHUB_APP_PRIVATE_KEY:?Configure GITHUB_APP_PRIVATE_KEY in 1Password}"
 
       - name: Import Apple signing certificate
         uses: apple-actions/import-codesign-certs@v7
@@ -151,3 +157,21 @@ jobs:
           files: |
             dist/*.dmg
             dist/SHA256SUMS
+
+      - name: Mint homebrew-tap token (GitHub App)
+        id: tap_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ steps.load_secrets.outputs.GITHUB_APP_ID }}
+          private-key: ${{ steps.load_secrets.outputs.GITHUB_APP_PRIVATE_KEY }}
+          owner: AprilNEA
+          repositories: homebrew-tap
+
+      - name: Dispatch homebrew-tap update
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ steps.tap_token.outputs.token }}
+          repository: AprilNEA/homebrew-tap
+          event-type: update-openlogi
+          client-payload: |
+            {"version": "${{ github.ref_name }}"}
