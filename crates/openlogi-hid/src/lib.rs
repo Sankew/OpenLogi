@@ -10,6 +10,7 @@ mod transport;
 
 pub mod adjustable_dpi;
 pub mod inventory;
+pub mod reprog_controls;
 pub mod smartshift;
 pub mod write;
 

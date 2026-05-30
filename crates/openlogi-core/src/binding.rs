@@ -120,6 +120,38 @@ impl fmt::Display for GestureDirection {
     }
 }
 
+/// Classify an accumulated raw-XY swipe — the summed `dx`/`dy` the device
+/// reports while the gesture button is held — into one of the five
+/// [`GestureDirection`] slots.
+///
+/// Returns [`GestureDirection::Click`] when the total travel is shorter than
+/// `min_travel` (a press with no meaningful movement). Otherwise the dominant
+/// axis decides: larger `|dx|` ⇒ Left/Right, larger `|dy|` ⇒ Up/Down, with ties
+/// favouring the horizontal axis. Coordinates follow the device's raw-XY
+/// convention (`+x` = right, `+y` = down), so an upward swipe (negative `dy`)
+/// maps to [`GestureDirection::Up`]; flip the sign at the call site for a device
+/// that reports an inverted axis.
+#[must_use]
+pub fn classify_gesture(dx: i32, dy: i32, min_travel: u32) -> GestureDirection {
+    let dxl = i64::from(dx);
+    let dyl = i64::from(dy);
+    let min = i64::from(min_travel);
+    if dxl * dxl + dyl * dyl < min * min {
+        return GestureDirection::Click;
+    }
+    if dx.unsigned_abs() >= dy.unsigned_abs() {
+        if dx >= 0 {
+            GestureDirection::Right
+        } else {
+            GestureDirection::Left
+        }
+    } else if dy >= 0 {
+        GestureDirection::Down
+    } else {
+        GestureDirection::Up
+    }
+}
+
 /// Grouping for popover section headers.
 ///
 /// Used by [`Action::category`] and rendered as a small muted label above
@@ -825,6 +857,28 @@ mod tests {
                 "catalog must not contain CustomShortcut"
             );
         }
+    }
+
+    // ── Gesture classification ────────────────────────────────────────────────
+
+    #[test]
+    fn classify_gesture_short_travel_is_click() {
+        assert_eq!(classify_gesture(3, -2, 32), GestureDirection::Click);
+        assert_eq!(classify_gesture(0, 0, 32), GestureDirection::Click);
+    }
+
+    #[test]
+    fn classify_gesture_dominant_axis_wins() {
+        assert_eq!(classify_gesture(120, 5, 32), GestureDirection::Right);
+        assert_eq!(classify_gesture(-120, 5, 32), GestureDirection::Left);
+        assert_eq!(classify_gesture(5, 120, 32), GestureDirection::Down);
+        assert_eq!(classify_gesture(5, -120, 32), GestureDirection::Up);
+    }
+
+    #[test]
+    fn classify_gesture_ties_favor_horizontal() {
+        assert_eq!(classify_gesture(50, 50, 32), GestureDirection::Right);
+        assert_eq!(classify_gesture(-50, -50, 32), GestureDirection::Left);
     }
 
     // ── TOML roundtrip ────────────────────────────────────────────────────────
