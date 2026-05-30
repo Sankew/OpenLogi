@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
 use gpui::Global;
-use openlogi_core::config::Config;
+use openlogi_core::config::{AppSettings, Config};
 use openlogi_core::device::DeviceInventory;
 use openlogi_hook::Hook;
 use tracing::{debug, warn};
@@ -322,6 +322,42 @@ impl AppState {
         self.current_record()
             .map(|r| self.config.dpi_presets(&r.config_key))
             .unwrap_or_default()
+    }
+
+    /// App-wide settings backing the Settings window (launch-at-login,
+    /// update check). Read-only view; mutate via the setters below so the
+    /// change is persisted.
+    #[must_use]
+    pub fn app_settings(&self) -> &AppSettings {
+        &self.config.app_settings
+    }
+
+    /// Toggle launch-at-login, persist to `config.toml`, and reconcile the
+    /// macOS `LaunchAgent` plist so the change takes effect without a
+    /// restart. No-op when the value is unchanged. Disk failures are logged,
+    /// not propagated — the Settings UI shouldn't crash on a full volume.
+    pub fn set_launch_at_login(&mut self, enabled: bool) {
+        if self.config.app_settings.launch_at_login == enabled {
+            return;
+        }
+        self.config.app_settings.launch_at_login = enabled;
+        if let Err(e) = self.config.save_atomic() {
+            warn!(error = %e, "could not persist launch-at-login setting");
+        }
+        crate::launch_agent::reconcile(enabled);
+    }
+
+    /// Toggle the opt-in update check and persist it. No immediate side
+    /// effect beyond the next launch reading the new value. No-op when
+    /// unchanged.
+    pub fn set_check_for_updates(&mut self, enabled: bool) {
+        if self.config.app_settings.check_for_updates == enabled {
+            return;
+        }
+        self.config.app_settings.check_for_updates = enabled;
+        if let Err(e) = self.config.save_atomic() {
+            warn!(error = %e, "could not persist update-check setting");
+        }
     }
 
     /// Update a single binding in memory, on disk, and in the shared hook

@@ -237,10 +237,27 @@ fn footer(pal: Palette) -> impl IntoElement {
         .border_t_1()
         .border_color(pal.border)
         .child(
-            div()
+            h_flex()
+                .gap_2()
                 .text_xs()
                 .text_color(pal.text_muted)
-                .child("Settings · About"),
+                .child(
+                    div()
+                        .id("footer-settings")
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(pal.text_primary))
+                        .child("Settings")
+                        .on_click(|_, _, cx| crate::settings_window::open(cx)),
+                )
+                .child(div().child("·"))
+                .child(
+                    div()
+                        .id("footer-about")
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(pal.text_primary))
+                        .child("About")
+                        .on_click(|_, _, cx| crate::about_window::open(cx)),
+                ),
         )
         .child(
             div()

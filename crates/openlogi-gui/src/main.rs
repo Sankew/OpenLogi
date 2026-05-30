@@ -4,6 +4,7 @@
 //! the main thread, so we can't move it onto a tokio runtime). Live polling
 //! lands when there's something to react to.
 
+mod about_window;
 mod accessibility_watcher;
 mod app;
 mod app_menu;
@@ -15,10 +16,12 @@ mod hardware;
 mod inventory_watcher;
 mod launch_agent;
 mod mouse_model;
+mod settings_window;
 mod single_instance;
 mod state;
 mod theme;
 mod updater;
+mod windows;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};

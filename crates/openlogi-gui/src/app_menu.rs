@@ -20,6 +20,10 @@ actions!(
         HideOthers,
         /// Minimize the active window.
         Minimize,
+        /// Open the About window.
+        OpenAbout,
+        /// Open the Settings window.
+        OpenSettings,
         /// Quit the application.
         Quit,
         /// Reveal every hidden application (macOS).
@@ -38,6 +42,8 @@ pub fn install(cx: &mut App) {
         cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
     }
     cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.on_action(|_: &OpenSettings, cx| crate::settings_window::open(cx));
+    cx.on_action(|_: &OpenAbout, cx| crate::about_window::open(cx));
 
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),
@@ -46,6 +52,7 @@ pub fn install(cx: &mut App) {
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-alt-h", HideOthers, None),
         KeyBinding::new("cmd-m", Minimize, None),
+        KeyBinding::new("cmd-,", OpenSettings, None),
     ]);
 
     cx.set_menus(menus());
@@ -57,6 +64,11 @@ fn menus() -> Vec<Menu> {
             name: "OpenLogi".into(),
             disabled: false,
             items: vec![
+                MenuItem::action("About OpenLogi", OpenAbout),
+                MenuItem::separator(),
+                MenuItem::action("Settings…", OpenSettings),
+                #[cfg(target_os = "macos")]
+                MenuItem::separator(),
                 #[cfg(target_os = "macos")]
                 MenuItem::os_submenu("Services", gpui::SystemMenuType::Services),
                 #[cfg(target_os = "macos")]
