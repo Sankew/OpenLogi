@@ -683,6 +683,23 @@ impl Action {
     }
 }
 
+/// Synthesise a horizontal scroll of `delta` wheel lines at the current focus.
+///
+/// Used by the gesture/thumbwheel capture watcher to re-inject the MX thumb
+/// wheel's scrolling after the wheel has been diverted over HID++ to capture its
+/// click. `delta` is the device's raw rotation; its sign follows the wheel's
+/// rotation convention and its magnitude (one line per rotation increment) may
+/// need tuning per device, since the diverted resolution differs from native.
+///
+/// No-op (logs nothing) on platforms without CGEvent.
+pub fn post_horizontal_scroll(delta: i32) {
+    #[cfg(target_os = "macos")]
+    macos::post_horizontal_scroll(delta);
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = delta;
+}
+
 // ── macOS virtual key codes ────────────────────────────────────────────────
 // Source: <HIToolbox/Events.h> kVK_* constants. Values are layout-independent
 // for the US ANSI keyboard.
@@ -805,6 +822,20 @@ mod macos {
         };
         let Ok(ev) = CGEvent::new_scroll_event(src, ScrollEventUnit::PIXEL, 2, v, h, 0) else {
             tracing::warn!("CGEvent::new_scroll_event failed");
+            return;
+        };
+        ev.post(CGEventTapLocation::HID);
+    }
+
+    /// Post a horizontal scroll of `delta` lines (wheel2 axis). Line units suit
+    /// the thumb wheel's ratchet-like increments better than pixels.
+    pub(super) fn post_horizontal_scroll(delta: i32) {
+        let Ok(src) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
+            tracing::warn!("CGEventSource::new failed for thumbwheel scroll");
+            return;
+        };
+        let Ok(ev) = CGEvent::new_scroll_event(src, ScrollEventUnit::LINE, 2, 0, delta, 0) else {
+            tracing::warn!("CGEvent::new_scroll_event failed for thumbwheel");
             return;
         };
         ev.post(CGEventTapLocation::HID);

@@ -22,6 +22,8 @@ actions!(
         Minimize,
         /// Open the About window.
         OpenAbout,
+        /// Open the Add Device (pairing) window.
+        OpenAddDevice,
         /// Open the Settings window.
         OpenSettings,
         /// Quit the application.
@@ -44,6 +46,7 @@ pub fn install(cx: &mut App) {
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(|_: &OpenSettings, cx| crate::windows::settings::open(cx));
     cx.on_action(|_: &OpenAbout, cx| crate::windows::about::open(cx));
+    cx.on_action(|_: &OpenAddDevice, cx| crate::windows::add_device::open(cx));
 
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),
@@ -74,6 +77,7 @@ fn menus() -> Vec<Menu> {
             items: vec![
                 MenuItem::action(tr!("About OpenLogi"), OpenAbout),
                 MenuItem::separator(),
+                MenuItem::action(tr!("Add Device…"), OpenAddDevice),
                 MenuItem::action(tr!("Settings…"), OpenSettings),
                 #[cfg(target_os = "macos")]
                 MenuItem::separator(),

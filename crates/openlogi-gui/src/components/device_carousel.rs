@@ -6,9 +6,9 @@ use gpui::{
     StatefulInteractiveElement as _, Styled, Window, div, ease_in_out, point,
     prelude::FluentBuilder as _, pulsating_between, px, rgb,
 };
-use gpui_component::{h_flex, v_flex};
+use gpui_component::{Icon, IconName, h_flex, v_flex};
 use openlogi_core::device::{
-    BatteryInfo, BatteryStatus, DeviceInventory, DeviceKind, PairedDevice,
+    BatteryInfo, BatteryLevel, BatteryStatus, DeviceInventory, DeviceKind, PairedDevice,
 };
 
 use crate::state::AppState;
@@ -96,7 +96,7 @@ fn card_view(
     entity: &Entity<DeviceCarousel>,
     pal: Palette,
 ) -> AnyElement {
-    let battery_label = card.battery.as_ref().map(format_battery);
+    let battery = card.battery.clone();
     let entity = entity.clone();
 
     div()
@@ -141,9 +141,7 @@ fn card_view(
                                 .child(card.sub.clone()),
                         ),
                 )
-                .when_some(battery_label, |this, label| {
-                    this.child(div().text_xs().text_color(pal.text_muted).child(label))
-                }),
+                .when_some(battery, |this, b| this.child(battery_view(&b, pal))),
         )
         .into_any_element()
 }
@@ -226,14 +224,34 @@ fn demo_cards() -> Vec<CardData> {
     ]
 }
 
-fn format_battery(b: &BatteryInfo) -> String {
-    let glyph = match b.status {
-        BatteryStatus::Charging | BatteryStatus::ChargingSlow => "⚡ ",
-        BatteryStatus::Full => "✓ ",
-        BatteryStatus::Error => "⚠ ",
-        _ => "",
-    };
-    format!("{glyph}{}%", b.percentage)
+/// Battery readout for a device card: a charge/level icon plus the percentage,
+/// both in the muted footer style.
+fn battery_view(b: &BatteryInfo, pal: Palette) -> AnyElement {
+    h_flex()
+        .gap_1()
+        .items_center()
+        .text_xs()
+        .text_color(pal.text_muted)
+        .child(Icon::new(battery_icon(b)).size_3())
+        .child(format!("{}%", b.percentage))
+        .into_any_element()
+}
+
+/// Pick the battery glyph from charge state first (charging / full / error),
+/// then fall back to the discrete charge level for a plain discharge.
+fn battery_icon(b: &BatteryInfo) -> IconName {
+    match b.status {
+        BatteryStatus::Charging | BatteryStatus::ChargingSlow => IconName::BatteryCharging,
+        BatteryStatus::Full => IconName::BatteryFull,
+        BatteryStatus::Error => IconName::BatteryWarning,
+        BatteryStatus::Discharging | BatteryStatus::Unknown => match b.level {
+            BatteryLevel::Critical => IconName::BatteryWarning,
+            BatteryLevel::Low => IconName::BatteryLow,
+            BatteryLevel::Good => IconName::BatteryMedium,
+            BatteryLevel::Full => IconName::BatteryFull,
+            BatteryLevel::Unknown => IconName::Battery,
+        },
+    }
 }
 
 fn kind_label(kind: DeviceKind) -> &'static str {

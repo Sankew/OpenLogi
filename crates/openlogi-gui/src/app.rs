@@ -1,9 +1,9 @@
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, Render, StatefulInteractiveElement as _, Styled, Subscription, Window, div, px,
-    rgb,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Window, div, px, rgb,
 };
-use gpui_component::{h_flex, v_flex};
+use gpui_component::{Icon, IconName, h_flex, v_flex};
 use openlogi_core::config::Config;
 use openlogi_core::device::DeviceInventory;
 use tracing::{info, warn};
@@ -85,6 +85,11 @@ impl AppView {
             .gap_4()
             .p_8()
             .child(
+                Icon::new(IconName::TriangleAlert)
+                    .size_8()
+                    .text_color(rgb(theme::STATUS_CONNECTING)),
+            )
+            .child(
                 div()
                     .text_xl()
                     .font_weight(FontWeight::SEMIBOLD)
@@ -112,7 +117,13 @@ impl AppView {
                     .text_color(rgb(0x00ff_ffff))
                     .font_weight(FontWeight::MEDIUM)
                     .cursor_pointer()
-                    .child(tr!("Open System Settings to grant access"))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(Icon::new(IconName::Settings))
+                            .child(tr!("Open System Settings to grant access")),
+                    )
                     .on_click(|_, _, _| open_accessibility_settings()),
             )
             .child(div().text_xs().text_color(pal.text_muted).child(tr!(
@@ -217,10 +228,19 @@ fn footer(pal: Palette, granted: bool) -> impl IntoElement {
                 .text_color(pal.text_muted)
                 .child(
                     div()
+                        .id("footer-add-device")
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(pal.text_primary))
+                        .child(footer_link(IconName::Plus, tr!("Add Device")))
+                        .on_click(|_, _, cx| crate::windows::add_device::open(cx)),
+                )
+                .child(div().child("·"))
+                .child(
+                    div()
                         .id("footer-settings")
                         .cursor_pointer()
                         .hover(|s| s.text_color(pal.text_primary))
-                        .child(tr!("Settings"))
+                        .child(footer_link(IconName::Settings, tr!("Settings")))
                         .on_click(|_, _, cx| crate::windows::settings::open(cx)),
                 )
                 .child(div().child("·"))
@@ -229,7 +249,7 @@ fn footer(pal: Palette, granted: bool) -> impl IntoElement {
                         .id("footer-about")
                         .cursor_pointer()
                         .hover(|s| s.text_color(pal.text_primary))
-                        .child(tr!("About"))
+                        .child(footer_link(IconName::Info, tr!("About")))
                         .on_click(|_, _, cx| crate::windows::about::open(cx)),
                 ),
         )
@@ -240,6 +260,17 @@ fn footer(pal: Palette, granted: bool) -> impl IntoElement {
                 .text_color(pal.text_muted)
                 .child(concat!("v", env!("CARGO_PKG_VERSION"))),
         )
+}
+
+/// A footer link's content: a small leading icon plus its label, laid out
+/// inline. The hover colour is inherited from the clickable wrapper, so this
+/// only describes the static row.
+fn footer_link(icon: IconName, label: SharedString) -> impl IntoElement {
+    h_flex()
+        .gap_1()
+        .items_center()
+        .child(Icon::new(icon))
+        .child(label)
 }
 
 /// Footer Accessibility-permission indicator. Granted → a muted green-dot

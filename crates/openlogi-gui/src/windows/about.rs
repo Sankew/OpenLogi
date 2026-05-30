@@ -11,7 +11,7 @@ use gpui::{
     App, Context, FontWeight, IntoElement, ParentElement as _, Render, Size, Styled as _,
     Subscription, Window, div, px,
 };
-use gpui_component::{button::Button, h_flex, v_flex};
+use gpui_component::{IconName, button::Button, h_flex, v_flex};
 
 use crate::theme;
 use crate::windows::{self, AuxWindow};
@@ -92,12 +92,14 @@ impl Render for AboutView {
                     .child(
                         Button::new("about-repo")
                             .outline()
+                            .icon(IconName::Github)
                             .label("GitHub")
                             .on_click(|_, _, cx| cx.open_url(REPO_URL)),
                     )
                     .child(
                         Button::new("about-releases")
                             .outline()
+                            .icon(IconName::ExternalLink)
                             .label("Releases")
                             .on_click(|_, _, cx| cx.open_url(RELEASES_URL)),
                     ),

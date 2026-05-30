@@ -9,6 +9,7 @@
 //! window's appearance observer in `main.rs`).
 
 pub mod about;
+pub mod add_device;
 pub mod settings;
 
 use gpui::{
@@ -24,6 +25,7 @@ use tracing::warn;
 pub struct WindowRegistry {
     pub settings: Option<WindowHandle<Root>>,
     pub about: Option<WindowHandle<Root>>,
+    pub add_device: Option<WindowHandle<Root>>,
 }
 
 impl Global for WindowRegistry {}

@@ -30,6 +30,14 @@ pub const FEATURE_ID: u16 = 0x1b04;
 /// `special_keys.py`.
 pub const GESTURE_BUTTON_CID: u16 = 0x00c3;
 
+/// Control IDs of the "DPI / ModeShift" button family. Whichever a device
+/// exposes (and can divert) is captured and mapped to
+/// [`ButtonId::DpiToggle`](openlogi_core::binding::ButtonId::DpiToggle): the MX
+/// wheel-mode "Smart Shift" button, plus the dedicated "DPI Change" / "DPI
+/// Switch" buttons on other models. Values from the `0x1b04` control-ID list,
+/// cross-checked against Solaar `special_keys.py`.
+pub const DPI_MODE_SHIFT_CIDS: [u16; 3] = [0x00c4, 0x00ed, 0x00fd];
+
 /// `getCount` function ID.
 const FN_GET_COUNT: u8 = 0;
 /// `getCtrlIdInfo` function ID.

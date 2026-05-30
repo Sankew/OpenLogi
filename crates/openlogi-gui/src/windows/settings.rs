@@ -11,7 +11,7 @@ use gpui::{
     ParentElement as _, Render, SharedString, Size, StatefulInteractiveElement as _, Styled as _,
     Subscription, Window, div, px, rgb,
 };
-use gpui_component::{group_box::GroupBox, h_flex, switch::Switch, v_flex};
+use gpui_component::{Icon, IconName, group_box::GroupBox, h_flex, switch::Switch, v_flex};
 
 use crate::state::AppState;
 use crate::theme::{self, Palette};
@@ -72,7 +72,7 @@ impl Render for SettingsView {
             )
             .child(
                 GroupBox::new()
-                    .title(tr!("General"))
+                    .title(group_title(IconName::Settings, tr!("General")))
                     .child(setting_row(
                         Switch::new("launch-at-login")
                             .checked(launch)
@@ -104,10 +104,20 @@ impl Render for SettingsView {
             )
             .child(
                 GroupBox::new()
-                    .title(tr!("Language"))
+                    .title(group_title(IconName::Globe, tr!("Language")))
                     .child(language_row(language.as_deref(), pal, cx)),
             )
     }
+}
+
+/// A GroupBox title with a small leading icon. `GroupBox::title` styles the
+/// text itself, so this only lays the icon and label out inline.
+fn group_title(icon: IconName, label: SharedString) -> impl IntoElement {
+    h_flex()
+        .gap_1p5()
+        .items_center()
+        .child(Icon::new(icon))
+        .child(label)
 }
 
 /// One row: title + muted description on the left, the control on the right.

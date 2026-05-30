@@ -16,7 +16,7 @@ use gpui::{
     Window, div, px, rgb,
 };
 use gpui_component::{
-    h_flex,
+    Icon, IconName, h_flex,
     slider::{Slider, SliderEvent, SliderState},
     v_flex,
 };
@@ -197,7 +197,7 @@ fn preset_chip(idx: usize, value: u32, active: bool, presets: &[u32], pal: Palet
                 .id(("dpi-preset-remove", idx))
                 .text_xs()
                 .text_color(pal.text_muted)
-                .child("×")
+                .child(Icon::new(IconName::Close).size_3())
                 .on_click(move |_event, _window, cx| {
                     let mut next = presets_for_remove.clone();
                     if idx < next.len() {
@@ -223,10 +223,13 @@ fn add_preset_chip(pal: Palette) -> AnyElement {
         .bg(pal.surface)
         .hover(|s| s.bg(pal.surface_hover))
         .child(
-            div()
+            h_flex()
+                .gap_1()
+                .items_center()
                 .text_sm()
                 .text_color(pal.text_muted)
-                .child(tr!("+ Add")),
+                .child(Icon::new(IconName::Plus).size_3())
+                .child(tr!("Add")),
         )
         .on_click(|_event, _window, cx| {
             // Append the current DPI to the active device's preset list.

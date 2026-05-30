@@ -60,6 +60,10 @@ use crate::app::AppView;
 use crate::hook_runtime::BindingMap;
 use crate::state::{AppState, DpiCycleState};
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "startup orchestration: watcher spawns + the GPUI run/event loop read most clearly inline"
+)]
 fn main() -> Result<()> {
     init_tracing();
 
@@ -88,18 +92,33 @@ fn main() -> Result<()> {
     // frame already renders in the right language.
     i18n::apply(&initial_config.app_settings);
 
-    // Gesture capture runs independently of the CGEventTap hook (it needs no
-    // Accessibility permission), so start it up front for the active device.
-    watchers::gesture::spawn(Arc::clone(&gesture_bindings), Arc::clone(&dpi_cycle));
+    // HID++ control capture (gesture button, DPI/ModeShift button, thumb wheel)
+    // runs independently of the CGEventTap hook — it needs no Accessibility
+    // permission — so start it up front for the active device.
+    watchers::gesture::spawn(
+        Arc::clone(&hook_bindings),
+        Arc::clone(&gesture_bindings),
+        Arc::clone(&dpi_cycle),
+    );
 
     let mut inventory_rx = watchers::inventory::spawn(std::time::Duration::from_secs(2));
     let mut app_rx = watchers::foreground_app::spawn(std::time::Duration::from_secs(1));
     let mut accessibility_rx =
         watchers::accessibility::spawn(std::time::Duration::from_millis(1200));
+    let (pairing_ctrl_tx, mut pairing_evt_rx) = watchers::pairing::spawn();
 
-    gpui_platform::application().run(move |cx| {
+    // `with_assets` registers the embedded lucide SVGs that back
+    // `gpui_component::IconName`; without it every `Icon` would fail to load.
+    gpui_platform::application()
+        .with_assets(gpui_component_assets::Assets)
+        .run(move |cx| {
         gpui_component::init(cx);
         app_menu::install(cx);
+
+        // Publish the pairing control sender + initial UI state so the Add
+        // Device window's buttons can drive the watcher via globals.
+        cx.set_global(windows::add_device::PairingControl(pairing_ctrl_tx));
+        cx.set_global(windows::add_device::PairingUi::Idle);
 
         if !Hook::has_accessibility() {
             Hook::prompt_accessibility();
@@ -172,6 +191,11 @@ fn main() -> Result<()> {
                             hook_handle =
                                 hook_runtime::start(Arc::clone(&hook_arcs.0), Arc::clone(&hook_arcs.1));
                         }
+                    }
+                    Some(event) = pairing_evt_rx.recv() => {
+                        cx.update(|cx| {
+                            windows::add_device::apply_event(cx, event);
+                        });
                     }
                     else => break,
                 }

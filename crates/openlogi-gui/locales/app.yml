@@ -131,10 +131,10 @@ _version: 2
   ja: プリセット
   zh-CN: 预设
   zh-HK: 預設
-"+ Add":
-  ja: + 追加
-  zh-CN: + 添加
-  zh-HK: + 新增
+"Add":
+  ja: 追加
+  zh-CN: 添加
+  zh-HK: 新增
 
 # ── Binding popover scaffolding (mouse_model/picker.rs) ─────────────────────
 "Bind %{name}":
@@ -369,3 +369,77 @@ _version: 2
   ja: 右にスクロール
   zh-CN: 向右滚动
   zh-HK: 向右捲動
+
+# ── Add Device / pairing flow (windows/add_device.rs, app_menu.rs, app.rs) ──
+"Add Device":
+  ja: デバイスを追加
+  zh-CN: 添加设备
+  zh-HK: 新增裝置
+"Add Device…":
+  ja: デバイスを追加…
+  zh-CN: 添加设备…
+  zh-HK: 新增裝置…
+"Put the device in pairing mode, then start searching.":
+  ja: デバイスをペアリングモードにしてから検索を開始してください。
+  zh-CN: 先让设备进入配对模式，然后开始搜索。
+  zh-HK: 先讓裝置進入配對模式，然後開始搜尋。
+"Search for devices":
+  ja: デバイスを検索
+  zh-CN: 搜索设备
+  zh-HK: 搜尋裝置
+"Searching for devices…":
+  ja: デバイスを検索中…
+  zh-CN: 正在搜索设备…
+  zh-HK: 正在搜尋裝置…
+"Make sure the device is on and in pairing mode.":
+  ja: デバイスの電源が入り、ペアリングモードになっていることを確認してください。
+  zh-CN: 请确认设备已开机并处于配对模式。
+  zh-HK: 請確認裝置已開機並處於配對模式。
+"No devices found yet…":
+  ja: まだデバイスが見つかりません…
+  zh-CN: 暂未发现设备…
+  zh-HK: 暫未發現裝置…
+"Select a device to pair:":
+  ja: "ペアリングするデバイスを選択してください:"
+  zh-CN: 选择要配对的设备：
+  zh-HK: 選擇要配對的裝置：
+"Pairing…":
+  ja: ペアリング中…
+  zh-CN: 正在配对…
+  zh-HK: 正在配對…
+"Follow the instructions on your device.":
+  ja: デバイスの指示に従ってください。
+  zh-CN: 请按照设备上的提示操作。
+  zh-HK: 請按照裝置上的提示操作。
+"Type this passkey on the new keyboard, then press Enter:":
+  ja: "新しいキーボードでこのパスキーを入力し、Enter キーを押してください:"
+  zh-CN: 在新键盘上输入此配对码，然后按回车：
+  zh-HK: 在新鍵盤上輸入此配對碼，然後按 Enter：
+"On the new mouse, click in this order, then press both buttons together:":
+  ja: "新しいマウスでこの順にクリックし、最後に両方のボタンを同時に押してください:"
+  zh-CN: 在新鼠标上按此顺序点击，最后同时按下左右键：
+  zh-HK: 在新滑鼠上按此順序點擊，最後同時按下左右鍵：
+"Device paired":
+  ja: デバイスをペアリングしました
+  zh-CN: 设备已配对
+  zh-HK: 裝置已配對
+"Paired to slot %{slot}.":
+  ja: スロット %{slot} にペアリングしました。
+  zh-CN: 已配对到插槽 %{slot}。
+  zh-HK: 已配對到插槽 %{slot}。
+"Done":
+  ja: 完了
+  zh-CN: 完成
+  zh-HK: 完成
+"Pairing failed":
+  ja: ペアリングに失敗しました
+  zh-CN: 配对失败
+  zh-HK: 配對失敗
+"Try again":
+  ja: 再試行
+  zh-CN: 重试
+  zh-HK: 重試
+"Cancel":
+  ja: キャンセル
+  zh-CN: 取消
+  zh-HK: 取消

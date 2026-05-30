@@ -1,15 +1,19 @@
-//! Live gesture-button capture: divert the MX thumb gesture button over HID++
-//! `0x1b04` and turn its raw-XY swipes into [`GestureDirection`] events.
+//! Live control capture for one device: divert the MX thumb gesture button, the
+//! DPI/ModeShift button, and the thumb wheel over HID++ and turn their events
+//! into [`CapturedInput`] the GUI can dispatch.
 //!
-//! [`run_gesture_session`] holds a HID++ channel open for one device, enables
-//! diversion + raw-XY reporting on the gesture control, and registers a message
-//! listener that accumulates movement between the button's press and release.
-//! On release it classifies the travel into a direction and forwards it over an
-//! mpsc sink; on shutdown it restores the control's default mapping.
+//! [`run_capture_session`] holds a single HID++ channel open for one device,
+//! enables diversion on whichever of those controls it exposes, registers one
+//! message listener, and restores every control's default mapping on shutdown.
+//! Using one channel matters: a second channel to the same device would split
+//! its input-report stream, so all captured controls share this session.
 //!
-//! The session is transport-only — it has no opinion on what a direction *does*.
-//! The GUI maps each [`GestureDirection`] to the user's bound action and
-//! dispatches it, mirroring how the CGEventTap hook handles the side buttons.
+//! The session is transport-only — it has no opinion on what an input *does*.
+//! The GUI maps each [`CapturedInput`] to the user's bound action and dispatches
+//! it, mirroring how the CGEventTap hook handles the side buttons. The thumb
+//! wheel is special: diverting it stops native horizontal scroll, so the GUI
+//! re-synthesises scroll from the [`CapturedInput::Scroll`] deltas — the wheel
+//! is therefore only diverted when its click is actually bound.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -19,21 +23,23 @@ use hidpp::{
     protocol::v20,
     receiver::{self, Receiver},
 };
-use openlogi_core::binding::{GestureDirection, classify_gesture};
+use openlogi_core::binding::{ButtonId, GestureDirection, classify_gesture};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, warn};
 
 use crate::reprog_controls::{self, RawControlEvent, ReprogControlsV4};
+use crate::thumbwheel::{self, Thumbwheel};
 use crate::transport::{enumerate_hidpp_devices, open_hidpp_channel};
 
-/// Minimum accumulated raw-XY travel (device units) before a hold counts as a
-/// directional swipe instead of a [`GestureDirection::Click`]. Raw resolution
-/// is device-specific, so this is a starting point to tune on real hardware.
+/// Minimum accumulated raw-XY travel (device units) before a gesture hold counts
+/// as a directional swipe instead of a [`GestureDirection::Click`]. Raw
+/// resolution is device-specific, so this is a starting point to tune on real
+/// hardware.
 const MIN_TRAVEL: u32 = 50;
 
-/// Which device's gesture button to capture. Mirrors how DPI / SmartShift
-/// writes target a device: an optional Bolt receiver UID plus a pairing slot.
+/// Which device to capture from. Mirrors how DPI / SmartShift writes target a
+/// device: an optional Bolt receiver UID plus a pairing slot.
 #[derive(Debug, Clone)]
 pub struct GestureTarget {
     /// Bolt receiver unique ID, or `None` to use the first Bolt receiver found.
@@ -42,85 +48,74 @@ pub struct GestureTarget {
     pub slot: u8,
 }
 
-/// Why a gesture session could not start (or had to stop).
+/// One input captured from the active device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapturedInput {
+    /// A completed gesture-button swipe.
+    Gesture(GestureDirection),
+    /// A diverted button was pressed — the DPI/ModeShift button
+    /// ([`ButtonId::DpiToggle`]) or the thumb-wheel single tap
+    /// ([`ButtonId::Thumbwheel`]).
+    ButtonPressed(ButtonId),
+    /// Thumb-wheel rotation to re-synthesise as horizontal scroll, in the
+    /// wheel's `diverted_res` increments. Emitted only while the wheel is
+    /// diverted to capture its click.
+    Scroll(i16),
+}
+
+/// Why a capture session could not start (or had to stop).
 #[derive(Debug, Error)]
 pub enum GestureError {
     /// HID transport-level failure while enumerating or opening the device.
     #[error("HID transport error")]
     Hid(#[from] async_hid::HidError),
     /// No Bolt receiver matched the target's `receiver_uid`.
-    #[error("no matching receiver for the gesture target")]
+    #[error("no matching receiver for the capture target")]
     ReceiverNotFound,
     /// The device on the target slot did not answer HID++.
     #[error("device on slot {0} did not respond to HID++")]
     DeviceUnreachable(u8),
-    /// The device does not expose `ReprogControlsV4` (`0x1b04`).
-    #[error("device does not expose ReprogControlsV4 (0x1b04)")]
-    Unsupported,
-    /// The device has no raw-XY-capable gesture button to capture.
-    #[error("device has no raw-XY gesture button")]
-    NoGestureButton,
     /// A HID++ feature call returned an error; inner string carries context.
     #[error("HID++ protocol error: {0}")]
     Hidpp(String),
 }
 
-/// Movement accumulated between a gesture-button press and release. Lives behind
-/// a `Mutex` because the channel's read thread invokes the listener by shared
-/// reference.
+/// Movement + button state accumulated across messages. Lives behind a `Mutex`
+/// because the channel's read thread invokes the listener by shared reference.
 #[derive(Default)]
-struct GestureAccum {
-    held: bool,
+struct CaptureAccum {
+    /// Whether the gesture button is currently held.
+    gesture_held: bool,
+    /// Accumulated raw-XY travel while the gesture button is held.
     dx: i32,
     dy: i32,
+    /// Whether any DPI/ModeShift control was held in the last event — for
+    /// rising-edge press detection.
+    dpi_down: bool,
 }
 
-/// Capture the gesture button on `target` until `shutdown` resolves, forwarding
-/// each completed swipe to `sink`.
+/// Capture the gesture button, DPI/ModeShift button, and (when
+/// `capture_thumbwheel`) the thumb wheel on `target` until `shutdown` resolves,
+/// forwarding each event to `sink`.
 ///
-/// Opens and holds a HID++ channel, diverts the gesture control with raw-XY
-/// reporting, and listens for the resulting events. Returns once `shutdown`
-/// fires (or its sender is dropped), after restoring the control's default
-/// mapping. Errors before the listen loop starts are returned; a failure to
-/// restore the mapping on the way out is logged, not propagated.
-pub async fn run_gesture_session(
+/// Opens and holds one HID++ channel, diverts whichever of those controls the
+/// device exposes, and listens. Returns once `shutdown` fires (or its sender is
+/// dropped), after restoring every diverted control. Setup errors are returned;
+/// failures to restore on the way out are logged, not propagated.
+pub async fn run_capture_session(
     target: GestureTarget,
-    sink: mpsc::UnboundedSender<GestureDirection>,
+    capture_thumbwheel: bool,
+    sink: mpsc::UnboundedSender<CapturedInput>,
     shutdown: oneshot::Receiver<()>,
 ) -> Result<(), GestureError> {
     let chan = open_target_channel(&target).await?;
+    let armed = arm_controls(&chan, target.slot, capture_thumbwheel).await?;
 
-    // Resolve the 0x1b04 feature index directly off the root feature — the same
-    // bypass `write::open_feature` uses, because hidpp 0.2's central registry
-    // doesn't register the features OpenLogi reimplements.
-    let device = Device::new(Arc::clone(&chan), target.slot)
-        .await
-        .map_err(|_| GestureError::DeviceUnreachable(target.slot))?;
-    let info = device
-        .root()
-        .get_feature(reprog_controls::FEATURE_ID)
-        .await
-        .map_err(|e| GestureError::Hidpp(format!("{e:?}")))?
-        .ok_or(GestureError::Unsupported)?;
-    let reprog = ReprogControlsV4::new(Arc::clone(&chan), target.slot, info.index);
-
-    let control = reprog
-        .find_control(reprog_controls::GESTURE_BUTTON_CID)
-        .await
-        .map_err(|e| GestureError::Hidpp(format!("{e:?}")))?
-        .ok_or(GestureError::NoGestureButton)?;
-    if !control.supports_raw_xy() {
-        return Err(GestureError::NoGestureButton);
-    }
-
-    reprog
-        .set_cid_reporting(reprog_controls::GESTURE_BUTTON_CID, true, true)
-        .await
-        .map_err(|e| GestureError::Hidpp(format!("{e:?}")))?;
-
-    let accum = Arc::new(Mutex::new(GestureAccum::default()));
+    let accum = Arc::new(Mutex::new(CaptureAccum::default()));
+    let reprog_index = armed.reprog.as_ref().map(|(_, idx)| *idx);
+    let thumb_index = armed.thumb.as_ref().map(|(_, idx)| *idx);
+    let dpi_set = armed.dpi_cids.clone();
     let device_index = target.slot;
-    let feature_index = info.index;
     let hdl = chan.add_msg_listener({
         let accum = Arc::clone(&accum);
         let sink = sink.clone();
@@ -129,50 +124,227 @@ pub async fn run_gesture_session(
                 return;
             }
             let msg = v20::Message::from(raw);
-            let Some(event) = reprog_controls::decode_event(&msg, device_index, feature_index)
-            else {
-                return;
-            };
-            // Recover the guard even if a prior holder panicked — the critical
-            // section is panic-free, so the data is still consistent.
-            let mut acc = accum.lock().unwrap_or_else(PoisonError::into_inner);
-            match event {
-                RawControlEvent::DivertedButtons(_) => {
-                    let held = event.is_pressed(reprog_controls::GESTURE_BUTTON_CID);
-                    if held && !acc.held {
-                        acc.held = true;
-                        acc.dx = 0;
-                        acc.dy = 0;
-                    } else if !held && acc.held {
-                        acc.held = false;
-                        let direction = classify_gesture(acc.dx, acc.dy, MIN_TRAVEL);
-                        debug!(?direction, dx = acc.dx, dy = acc.dy, "gesture released");
-                        // Receiver gone => the GUI is tearing down; ignore.
-                        let _ = sink.send(direction);
-                    }
+            if let Some(idx) = reprog_index {
+                if let Some(event) = reprog_controls::decode_event(&msg, device_index, idx) {
+                    // Recover the guard even if a prior holder panicked — the
+                    // critical section is panic-free, so the data is consistent.
+                    let mut acc = accum.lock().unwrap_or_else(PoisonError::into_inner);
+                    handle_reprog(&mut acc, event, &dpi_set, &sink);
+                    return;
                 }
-                RawControlEvent::RawXy { dx, dy } => {
-                    if acc.held {
-                        acc.dx = acc.dx.saturating_add(i32::from(dx));
-                        acc.dy = acc.dy.saturating_add(i32::from(dy));
+            }
+            if let Some(idx) = thumb_index {
+                if let Some(event) = thumbwheel::decode_event(&msg, device_index, idx) {
+                    if event.single_tap {
+                        let _ = sink.send(CapturedInput::ButtonPressed(ButtonId::Thumbwheel));
+                    }
+                    if event.rotation != 0 {
+                        let _ = sink.send(CapturedInput::Scroll(event.rotation));
                     }
                 }
             }
         }
     });
 
-    info!(slot = target.slot, "gesture capture active");
+    info!(
+        slot = target.slot,
+        gesture = armed.gesture_diverted,
+        dpi_buttons = armed.dpi_cids.len(),
+        thumbwheel = armed.thumb.is_some(),
+        "control capture active"
+    );
     let _ = shutdown.await;
 
     chan.remove_msg_listener(hdl);
-    if let Err(e) = reprog
-        .set_cid_reporting(reprog_controls::GESTURE_BUTTON_CID, false, false)
-        .await
-    {
-        warn!(error = %e, "failed to restore gesture button mapping on shutdown");
-    }
-    debug!(slot = target.slot, "gesture capture stopped");
+    armed.disarm().await;
+    debug!(slot = target.slot, "control capture stopped");
     Ok(())
+}
+
+/// The set of controls a session has diverted, kept so they can be handed back
+/// to the firmware on teardown.
+struct ArmedControls {
+    /// `0x1b04` accessor + feature index, present when the device exposes it.
+    reprog: Option<(ReprogControlsV4, u8)>,
+    /// Whether the gesture button is diverted with raw-XY reporting.
+    gesture_diverted: bool,
+    /// DPI/ModeShift CIDs diverted as plain buttons.
+    dpi_cids: Vec<u16>,
+    /// `0x2150` accessor + feature index, present when the thumb wheel is
+    /// diverted.
+    thumb: Option<(Thumbwheel, u8)>,
+}
+
+impl ArmedControls {
+    /// Restore every diverted control. Failures are logged, not propagated.
+    async fn disarm(&self) {
+        if let Some((rc, _)) = self.reprog.as_ref() {
+            if self.gesture_diverted {
+                let r = rc
+                    .set_cid_reporting(reprog_controls::GESTURE_BUTTON_CID, false, false)
+                    .await;
+                restore(r, "gesture button");
+            }
+            for &cid in &self.dpi_cids {
+                restore(rc.set_cid_reporting(cid, false, false).await, "DPI button");
+            }
+        }
+        if let Some((tw, _)) = self.thumb.as_ref() {
+            restore(tw.set_reporting(false, false).await, "thumb wheel");
+        }
+    }
+}
+
+/// Resolve features off the device's root and divert the controls we capture:
+/// the gesture button (raw-XY) and DPI/ModeShift buttons over `0x1b04`, and —
+/// when `capture_thumbwheel` and the wheel reports a single tap — the thumb
+/// wheel over `0x2150`. The root-feature lookup mirrors `write::open_feature`,
+/// since hidpp 0.2's registry doesn't carry the features OpenLogi reimplements.
+async fn arm_controls(
+    chan: &Arc<HidppChannel>,
+    slot: u8,
+    capture_thumbwheel: bool,
+) -> Result<ArmedControls, GestureError> {
+    let device = Device::new(Arc::clone(chan), slot)
+        .await
+        .map_err(|_| GestureError::DeviceUnreachable(slot))?;
+
+    let mut reprog: Option<(ReprogControlsV4, u8)> = None;
+    let mut gesture_diverted = false;
+    let mut dpi_cids: Vec<u16> = Vec::new();
+    if let Some(info) = device
+        .root()
+        .get_feature(reprog_controls::FEATURE_ID)
+        .await
+        .map_err(|e| GestureError::Hidpp(format!("{e:?}")))?
+    {
+        let rc = ReprogControlsV4::new(Arc::clone(chan), slot, info.index);
+        let controls = enumerate_controls(&rc).await?;
+
+        if controls
+            .iter()
+            .any(|c| c.cid == reprog_controls::GESTURE_BUTTON_CID && c.supports_raw_xy())
+        {
+            rc.set_cid_reporting(reprog_controls::GESTURE_BUTTON_CID, true, true)
+                .await
+                .map_err(|e| GestureError::Hidpp(format!("{e:?}")))?;
+            gesture_diverted = true;
+        }
+        for &cid in &reprog_controls::DPI_MODE_SHIFT_CIDS {
+            if controls.iter().any(|c| c.cid == cid && c.is_divertable()) {
+                rc.set_cid_reporting(cid, true, false)
+                    .await
+                    .map_err(|e| GestureError::Hidpp(format!("{e:?}")))?;
+                dpi_cids.push(cid);
+            }
+        }
+        reprog = Some((rc, info.index));
+    }
+
+    let mut thumb: Option<(Thumbwheel, u8)> = None;
+    if capture_thumbwheel {
+        if let Some(info) = device
+            .root()
+            .get_feature(thumbwheel::FEATURE_ID)
+            .await
+            .map_err(|e| GestureError::Hidpp(format!("{e:?}")))?
+        {
+            let tw = Thumbwheel::new(Arc::clone(chan), slot, info.index);
+            // Consume the getInfo error here, before the next await: Hidpp20Error
+            // isn't Send, so holding it across an await would make this future
+            // (spawned on tokio) non-Send.
+            let supports_single_tap = match tw.get_info().await {
+                Ok(twinfo) => twinfo.supports_single_tap,
+                Err(e) => {
+                    warn!(error = ?e, "thumb wheel getInfo failed");
+                    false
+                }
+            };
+            if supports_single_tap {
+                tw.set_reporting(true, false)
+                    .await
+                    .map_err(|e| GestureError::Hidpp(format!("{e:?}")))?;
+                thumb = Some((tw, info.index));
+            } else {
+                debug!("thumb wheel reports no single tap — click not capturable");
+            }
+        }
+    }
+
+    if !gesture_diverted && dpi_cids.is_empty() && thumb.is_none() {
+        debug!(slot, "no capturable controls — idle session");
+    }
+    Ok(ArmedControls {
+        reprog,
+        gesture_diverted,
+        dpi_cids,
+        thumb,
+    })
+}
+
+/// Log (don't propagate) a failure to hand a control back to the firmware.
+fn restore<E: std::fmt::Display>(result: Result<(), E>, what: &str) {
+    if let Err(e) = result {
+        warn!(error = %e, control = what, "failed to restore control mapping on shutdown");
+    }
+}
+
+/// Read the device's full reprogrammable-control table in one pass, so we can
+/// test several CIDs without rescanning per control.
+async fn enumerate_controls(
+    rc: &ReprogControlsV4,
+) -> Result<Vec<reprog_controls::CtrlIdInfo>, GestureError> {
+    let count = rc
+        .get_count()
+        .await
+        .map_err(|e| GestureError::Hidpp(format!("{e:?}")))?;
+    let mut controls = Vec::with_capacity(usize::from(count));
+    for index in 0..count {
+        controls.push(
+            rc.get_ctrl_id_info(index)
+                .await
+                .map_err(|e| GestureError::Hidpp(format!("{e:?}")))?,
+        );
+    }
+    Ok(controls)
+}
+
+/// Update `acc` and emit on a decoded `0x1b04` event: classify gesture swipes on
+/// release, and emit a [`ButtonId::DpiToggle`] press on the rising edge of any
+/// diverted DPI/ModeShift control.
+fn handle_reprog(
+    acc: &mut CaptureAccum,
+    event: RawControlEvent,
+    dpi_cids: &[u16],
+    sink: &mpsc::UnboundedSender<CapturedInput>,
+) {
+    match event {
+        RawControlEvent::DivertedButtons(cids) => {
+            let gesture_held = cids.contains(&reprog_controls::GESTURE_BUTTON_CID);
+            if gesture_held && !acc.gesture_held {
+                acc.gesture_held = true;
+                acc.dx = 0;
+                acc.dy = 0;
+            } else if !gesture_held && acc.gesture_held {
+                acc.gesture_held = false;
+                let direction = classify_gesture(acc.dx, acc.dy, MIN_TRAVEL);
+                debug!(?direction, dx = acc.dx, dy = acc.dy, "gesture released");
+                let _ = sink.send(CapturedInput::Gesture(direction));
+            }
+
+            let dpi_down = dpi_cids.iter().any(|cid| cids.contains(cid));
+            if dpi_down && !acc.dpi_down {
+                let _ = sink.send(CapturedInput::ButtonPressed(ButtonId::DpiToggle));
+            }
+            acc.dpi_down = dpi_down;
+        }
+        RawControlEvent::RawXy { dx, dy } => {
+            if acc.gesture_held {
+                acc.dx = acc.dx.saturating_add(i32::from(dx));
+                acc.dy = acc.dy.saturating_add(i32::from(dy));
+            }
+        }
+    }
 }
 
 /// Open and return a HID++ channel for `target`, matching the Bolt receiver by
