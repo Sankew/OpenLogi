@@ -5,9 +5,9 @@
 //! 1. The macOS app bundle's `Contents/Resources/assets/` — populated at
 //!    packaging time by `openlogi assets sync` and shipped with every
 //!    release. Zero network at end-user runtime.
-//! 2. The per-user cache at `~/Library/Application Support/dev.OpenLogi
-//!    .openlogi/assets/` — populated by [`sync::sync`] when it runs
-//!    (debug builds and the bundle-missing safety net).
+//! 2. The per-user cache at `~/.local/share/openlogi/assets/` —
+//!    populated by [`sync::sync`] when it runs (debug builds and the
+//!    bundle-missing safety net).
 //!
 //! Either tier missing the requested files falls through to the next, and
 //! ultimately to the synthetic silhouette. The write side ([`sync::sync`])
@@ -17,7 +17,6 @@ pub mod sync;
 
 use std::path::{Path, PathBuf};
 
-use directories::ProjectDirs;
 use openlogi_assets::{DepotManifest, DeviceEntry, Index, Metadata, variant_model_id};
 use openlogi_core::device::DeviceModelInfo;
 use tracing::{debug, warn};
@@ -264,13 +263,12 @@ impl Default for AssetCache {
     }
 }
 
-/// Per-user writable cache root. Mirrors `openlogi_core::paths::config_dir`
-/// but nested under `assets/` to keep it separate from user config files.
+/// Per-user writable cache root: `openlogi_core::paths::data_dir()` plus an
+/// `assets/` subdir, keeping the render cache out of the config dir. Falls
+/// back to `./assets` only when no home directory can be resolved.
 fn user_cache_root() -> PathBuf {
-    ProjectDirs::from("dev", "OpenLogi", "openlogi").map_or_else(
-        || PathBuf::from("./assets"),
-        |d| d.data_dir().join("assets"),
-    )
+    openlogi_core::paths::data_dir()
+        .map_or_else(|_| PathBuf::from("./assets"), |d| d.join("assets"))
 }
 
 /// Read-only root pointing inside the macOS `.app` bundle when the binary

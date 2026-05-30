@@ -9,24 +9,16 @@ authors.workspace = true
 description = "Core types, config, and paths for OpenLogi. No I/O specifics."
 
 [dependencies]
-# Serde + TOML: config persistence is the only I/O this crate does.
 serde = { workspace = true }
 toml = { workspace = true }
-# Typed library errors.
 thiserror = { workspace = true }
-# Cross-OS application data directories.
-directories = { workspace = true }
-# Structured logging (instrumentation only; no subscriber).
 tracing = { workspace = true }
 
 [dev-dependencies]
-# Scratch directories for config-roundtrip tests.
 tempfile = "3"
 
 [lints]
 workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# macOS key-event synthesis used in Action::execute on macOS.
-# `highsierra` feature unlocks CGEventCreateScrollWheelEvent2 binding.
 core-graphics = { version = "0.25.0", features = ["highsierra"] }

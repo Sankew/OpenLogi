@@ -26,29 +26,16 @@ futures-lite = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
-# Blocking HTTP for the startup asset sync. rustls default avoids dragging
-# in system OpenSSL/Secure Transport linkage on each target.
 ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
-# SHA-256 for asset cache validation (already a transitive dep of rustls).
 sha2 = "0.10"
 clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
-directories = "5"
-# macOS event-tap and accessibility APIs (only compiled on macOS targets).
 core-graphics = { version = "0.25", default-features = false, features = ["link"] }
 core-foundation = { version = "0.10", default-features = false, features = ["link"] }
 
-# GPUI stack. The longbridge gpui-component README points at Zed's git HEAD
-# because their crates.io publishes (gpui 0.2.x, gpui-component 0.5.x) lag the
-# documented API. We deliberately do NOT pin `gpui` / `gpui_platform` with a
-# `rev` — gpui-component itself references zed without a rev, and cargo treats
-# `{ git = X, rev = Y }` and `{ git = X }` as separate source IDs, so pinning
-# here ends up compiling gpui twice and producing two incompatible `App`
-# types. Reproducibility comes from Cargo.lock pinning the resolved SHA;
-# bump via `cargo update -p gpui` when needed.
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "x11", "wayland"] }
 gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "196b9259b562c26be97c92f88c798bbeefa9cb3d" }
@@ -60,11 +47,6 @@ unsafe_code = "forbid"
 pedantic = { level = "warn", priority = -1 }
 unwrap_used = "warn"
 expect_used = "warn"
-# Two pedantic lints we deliberately turn off:
-#   missing_errors_doc — the public surface is small enough that the type
-#     already documents the failure modes; per-function `# Errors` prose rots.
-#   doc_markdown — backticking every CamelCase identifier in prose hurts
-#     readability more than it helps.
 missing_errors_doc = "allow"
 doc_markdown = "allow"
 

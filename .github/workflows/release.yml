@@ -121,7 +121,7 @@ jobs:
           appstore-connect-username: ${{ steps.load_secrets.outputs.APPLE_ID }}
           appstore-connect-password: ${{ steps.load_secrets.outputs.APPLE_PASSWORD }}
           appstore-connect-team-id: ${{ steps.load_secrets.outputs.APPLE_TEAM_ID }}
-          primary-bundle-id: org.openlogi.OpenLogi
+          primary-bundle-id: org.openlogi.openlogi
           tool: notarytool
           verbose: true
 
