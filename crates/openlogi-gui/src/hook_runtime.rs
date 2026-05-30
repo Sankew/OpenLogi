@@ -31,18 +31,34 @@ pub fn start(bindings: BindingMap, dpi_cycle: Arc<RwLock<DpiCycleState>>) -> Opt
 
     let result = Hook::start(move |event| match event {
         MouseEvent::Button { id, pressed } => {
-            let owned = matches!(id, ButtonId::Back | ButtonId::Forward);
-            if !owned {
+            // The CGEventTap only sees standard buttons 0-4. We remap
+            // Middle/Back/Forward; the primary L/R clicks always pass through
+            // (suppressing them would brick the mouse), and the DPI / thumb /
+            // gesture buttons aren't visible to the tap at all — the gesture
+            // button is captured separately over HID++.
+            if !matches!(
+                id,
+                ButtonId::MiddleClick | ButtonId::Back | ButtonId::Forward
+            ) {
                 return EventDisposition::PassThrough;
             }
+
+            let action = bindings.read().ok().and_then(|g| g.get(&id).cloned());
+            let Some(action) = action else {
+                // Unbound → leave the physical button to the OS.
+                return EventDisposition::PassThrough;
+            };
+
+            // A button left on its own native click (e.g. Middle → MiddleClick)
+            // should just do that click; suppressing and re-synthesising it
+            // would be pointless churn.
+            if is_native_click(id, &action) {
+                return EventDisposition::PassThrough;
+            }
+
             if pressed {
-                let action = bindings.read().ok().and_then(|g| g.get(&id).cloned());
-                if let Some(action) = action {
-                    info!(button = %id, action = %action.label(), "button → executing bound action");
-                    dispatch_action(&action, &dpi_cycle);
-                } else {
-                    info!(button = %id, "button pressed with no binding — suppressed");
-                }
+                info!(button = %id, action = %action.label(), "button → executing bound action");
+                dispatch_action(&action, &dpi_cycle);
             }
             EventDisposition::Suppress
         }
@@ -59,6 +75,18 @@ pub fn start(bindings: BindingMap, dpi_cycle: Arc<RwLock<DpiCycleState>>) -> Opt
             None
         }
     }
+}
+
+/// Whether `action` is just `id`'s own native click — i.e. the button is mapped
+/// to the very click it already produces. In that case the hook should pass the
+/// event through to the OS rather than suppress and re-synthesise it.
+fn is_native_click(id: ButtonId, action: &Action) -> bool {
+    matches!(
+        (id, action),
+        (ButtonId::LeftClick, Action::LeftClick)
+            | (ButtonId::RightClick, Action::RightClick)
+            | (ButtonId::MiddleClick, Action::MiddleClick)
+    )
 }
 
 /// Route a bound action either to OS-level event synthesis

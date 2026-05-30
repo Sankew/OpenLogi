@@ -555,10 +555,11 @@ impl Action {
     /// Synthesise the OS-level event for this action.
     ///
     /// On macOS, key events are posted via `CGEventPost(kCGHIDEventTap, …)`
-    /// using virtual key codes from the standard US keyboard layout.
-    /// Mouse-click variants and actions with no direct CGEvent equivalent
-    /// (e.g. `CycleDpiPresets`, `ToggleSmartShift`) are handled at the hook
-    /// layer (P0.1) and log a debug trace here instead.
+    /// using virtual key codes from the standard US keyboard layout, and the
+    /// `LeftClick`/`RightClick`/`MiddleClick` variants synthesise a mouse click
+    /// at the current cursor location. Device-side actions with no CGEvent
+    /// equivalent (`CycleDpiPresets`, `SetDpiPreset`, `ToggleSmartShift`) are
+    /// handled at the hook/HID layer and log a debug trace here instead.
     ///
     /// On other platforms a warning is logged and the function returns
     /// immediately — the binary compiles clean on all targets.
@@ -578,7 +579,7 @@ impl Action {
     /// macOS implementation: dispatch to the appropriate event helper.
     #[cfg(target_os = "macos")]
     fn execute_macos(&self) {
-        use core_graphics::event::CGEventFlags;
+        use core_graphics::event::{CGEventFlags, CGMouseButton};
 
         // Modifier bit shorthands.
         let cmd = CGEventFlags::CGEventFlagCommand;
@@ -587,13 +588,13 @@ impl Action {
         let none = CGEventFlags::CGEventFlagNull;
 
         match self {
-            // ── Mouse clicks: delegated to the hook layer ─────────────────────
-            Action::LeftClick | Action::RightClick | Action::MiddleClick => {
-                tracing::debug!(
-                    action = self.label(),
-                    "mouse-click execute delegated to hook layer"
-                );
-            }
+            // ── Mouse clicks: synthesise a click at the cursor ────────────────
+            // Remapping a *different* button to a click lands here (e.g. Back →
+            // MiddleClick). A button left on its own native click never reaches
+            // this — the hook passes it straight through to the OS.
+            Action::LeftClick => macos::post_click(CGMouseButton::Left),
+            Action::RightClick => macos::post_click(CGMouseButton::Right),
+            Action::MiddleClick => macos::post_click(CGMouseButton::Center),
             // ── Editing ───────────────────────────────────────────────────────
             Action::Copy => macos::post_key(VK_C, cmd),
             Action::Paste => macos::post_key(VK_V, cmd),
@@ -711,10 +712,42 @@ const VK_TAB: u16 = 0x30;
 /// Platform helpers for synthesising OS-level input events on macOS.
 #[cfg(target_os = "macos")]
 mod macos {
-    use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation, ScrollEventUnit};
+    use core_graphics::event::{
+        CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGMouseButton, ScrollEventUnit,
+    };
     use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+    use core_graphics::geometry::CGPoint;
 
     use crate::binding::Action;
+
+    /// Post a mouse-down + mouse-up pair for `button` at the cursor's current
+    /// location.
+    ///
+    /// Posted at the HID tap location, so OpenLogi's own event tap sees the
+    /// synthetic click too: a `LeftClick`/`RightClick` flows straight through
+    /// (the tap never owns the primary buttons), and a `MiddleClick` is left
+    /// alone unless the user has *also* remapped the middle button.
+    pub(super) fn post_click(button: CGMouseButton) {
+        let Ok(src) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
+            tracing::warn!("CGEventSource::new failed for click");
+            return;
+        };
+        // A fresh event reports the current pointer location; mouse events need
+        // an explicit position or they land at (0, 0).
+        let location = CGEvent::new(src.clone()).map_or(CGPoint::new(0., 0.), |e| e.location());
+        let (down, up) = match button {
+            CGMouseButton::Left => (CGEventType::LeftMouseDown, CGEventType::LeftMouseUp),
+            CGMouseButton::Right => (CGEventType::RightMouseDown, CGEventType::RightMouseUp),
+            CGMouseButton::Center => (CGEventType::OtherMouseDown, CGEventType::OtherMouseUp),
+        };
+        for (kind, phase) in [(down, "down"), (up, "up")] {
+            if let Ok(ev) = CGEvent::new_mouse_event(src.clone(), kind, location, button) {
+                ev.post(CGEventTapLocation::HID);
+            } else {
+                tracing::warn!(phase, "CGEvent::new_mouse_event failed");
+            }
+        }
+    }
 
     /// Post a key-down + key-up pair for `vk` with `flags` set.
     pub(super) fn post_key(vk: u16, flags: CGEventFlags) {
