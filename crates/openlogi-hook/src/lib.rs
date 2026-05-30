@@ -81,9 +81,10 @@ pub enum HookError {
 pub struct Hook {
     #[cfg(target_os = "macos")]
     inner: Option<macos::HookInner>,
-    /// Prevents construction outside this crate on non-macOS platforms.
+    /// Makes `Hook` uninhabited on non-macOS targets, so [`Hook::start`] can
+    /// only ever return `Err` there and the type can never be constructed.
     #[cfg(not(target_os = "macos"))]
-    _priv: std::convert::Infallible,
+    never: std::convert::Infallible,
 }
 
 impl Drop for Hook {
@@ -93,7 +94,7 @@ impl Drop for Hook {
             macos::stop(inner);
         }
         #[cfg(not(target_os = "macos"))]
-        // Unreachable: `_priv: Infallible` prevents construction.
+        // Unreachable: `never: Infallible` makes `Hook` uninhabited here.
         {}
     }
 }
@@ -128,13 +129,20 @@ impl Hook {
     /// Signals the background run loop to exit and blocks until the thread
     /// joins. Calling this explicitly is preferred over relying on `Drop` when
     /// errors in cleanup should be visible. `Drop` calls this automatically.
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(
+            unused_mut,
+            reason = "`mut self` is only consumed by the macOS teardown path"
+        )
+    )]
     pub fn stop(mut self) {
         #[cfg(target_os = "macos")]
         if let Some(inner) = self.inner.take() {
             macos::stop(inner);
         }
         #[cfg(not(target_os = "macos"))]
-        match self._priv {}
+        match self.never {}
     }
 
     /// Returns `true` when the process has the macOS Accessibility entitlement
