@@ -97,9 +97,10 @@
       '';
     };
     "openlogi:dmg" = {
-      description = "Build OpenLogi.app (icon + assets) and wrap it in a DMG.";
-      # Full packaging: icon → assets → .app → optional codesign → .dmg.
-      # Set OPENLOGI_SIGN_IDENTITY to a Developer ID to sign for release.
+      description = "Build OpenLogi.app with cargo-bundle and wrap it in a DMG with create-dmg.";
+      # Full local packaging: icon → optional assets → .app → optional codesign
+      # → .dmg. Set OPENLOGI_BUNDLE_ASSETS=1 for a fully offline bundle, and
+      # OPENLOGI_SIGN_IDENTITY to sign locally with a Developer ID identity.
       exec = "bash scripts/package-macos.sh";
     };
   };

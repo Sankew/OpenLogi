@@ -73,6 +73,18 @@ cargo run -p openlogi-gui --release
 GUI builds need Apple's full Xcode toolchain (Xcode 16+ with the optional Metal
 Toolchain component) on macOS. CLI builds need only stable Rust.
 
+To build a macOS DMG locally, install `create-dmg`; the packaging script will
+install `cargo-bundle` if needed:
+
+```sh
+brew install create-dmg
+bash scripts/package-macos.sh
+```
+
+The default DMG is lean: device renders are fetched on demand at first launch.
+Set `OPENLOGI_BUNDLE_ASSETS=1` before packaging to bundle every render for an
+offline DMG.
+
 ### macOS
 
 Quit **Logi Options+** before running `openlogi` — the two applications fight
@@ -124,6 +136,12 @@ Without that, GPUI's `gpui_macos` build script can't find Apple's `metal`
 shader compiler, and link errors about missing `_write` / `_sysconf` /
 `_waitpid` symbols show up because the Nix `apple-sdk-14.4` stub doesn't
 expose `libSystem` the way Apple's real linker wants.
+
+The devenv DMG shortcut mirrors the GitHub Actions packaging workflow:
+
+```sh
+devenv tasks run openlogi:dmg
+```
 
 ## Acknowledgments
 

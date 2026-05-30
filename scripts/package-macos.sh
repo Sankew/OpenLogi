@@ -54,14 +54,26 @@ else
 fi
 
 echo "==> dmg"
-stage="$(mktemp -d)/OpenLogi"
-mkdir -p "$stage"
-cp -R "$APP" "$stage/"
-ln -s /Applications "$stage/Applications"
+command -v create-dmg >/dev/null 2>&1 || {
+  echo "error: create-dmg is required (install with: brew install create-dmg)" >&2
+  exit 1
+}
 DMG="$ROOT/target/release/OpenLogi.dmg"
 rm -f "$DMG"
-hdiutil create -volname "OpenLogi" -srcfolder "$stage" -ov -format UDZO "$DMG" >/dev/null
-rm -rf "$(dirname "$stage")"
+create-dmg \
+  --volname "OpenLogi" \
+  --window-size 640 420 \
+  --icon "OpenLogi.app" 180 170 \
+  --app-drop-link 460 170 \
+  --hide-extension "OpenLogi.app" \
+  "$DMG" \
+  "$APP"
+
+if [ -n "${OPENLOGI_SIGN_IDENTITY:-}" ]; then
+  echo "==> codesign dmg ($OPENLOGI_SIGN_IDENTITY)"
+  codesign --force --timestamp --sign "$OPENLOGI_SIGN_IDENTITY" "$DMG"
+  codesign --verify --verbose=2 "$DMG"
+fi
 
 echo
 echo "done → $DMG"
