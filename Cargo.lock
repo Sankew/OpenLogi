@@ -4222,6 +4222,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "openlogi"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "openlogi-cli",
+ "tokio",
+]
+
+[[package]]
 name = "openlogi-assets"
 version = "0.0.1"
 dependencies = [

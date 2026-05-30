@@ -12,7 +12,7 @@ echo "==> app icon"
 
 if [ "${OPENLOGI_BUNDLE_ASSETS:-0}" = "1" ]; then
   echo "==> device assets: bundling (offline build)"
-  cargo run -p openlogi-cli --release -- assets sync
+  cargo run -p openlogi --release -- assets sync
 else
   echo "==> device assets: on-demand (not bundled; fetched at first launch)"
   rm -rf "$ROOT/crates/openlogi-gui/assets"

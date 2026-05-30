@@ -1,3 +1,6 @@
+//! OpenLogi CLI implementation. The `openlogi` binary is a thin wrapper that
+//! calls [`run`]; the command tree and argument parsing live here.
+
 use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -17,8 +20,8 @@ struct Cli {
     cmd: Option<cmd::Command>,
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+/// Initialise logging, parse arguments, and dispatch the chosen subcommand.
+pub async fn run() -> Result<()> {
     fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(

@@ -82,7 +82,7 @@ jobs:
 
           bash scripts/macos-icns.sh
           if [ "${OPENLOGI_BUNDLE_ASSETS:-0}" = "1" ]; then
-            cargo run -p openlogi-cli --release -- assets sync
+            cargo run -p openlogi --release -- assets sync
           else
             rm -rf crates/openlogi-gui/assets
             mkdir -p crates/openlogi-gui/assets

@@ -6,16 +6,14 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "OpenLogi command-line interface."
-
-[[bin]]
-name = "openlogi"
-path = "src/main.rs"
+description = "Implementation library for the OpenLogi CLI (the `openlogi` binary)."
+keywords = ["logitech", "hidpp", "hid", "mouse", "cli"]
+categories = ["command-line-utilities", "hardware-support"]
 
 [dependencies]
-openlogi-core = { path = "../openlogi-core" }
-openlogi-hid = { path = "../openlogi-hid" }
-openlogi-assets = { path = "../openlogi-assets" }
+openlogi-core = { path = "../openlogi-core", version = "0.0.1" }
+openlogi-hid = { path = "../openlogi-hid", version = "0.0.1" }
+openlogi-assets = { path = "../openlogi-assets", version = "0.0.1" }
 clap = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros", "sync", "time"] }

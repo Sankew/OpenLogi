@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 description = "GPUI-based desktop UI for OpenLogi."
+# Not publishable to crates.io: depends on git-only gpui / gpui_platform
+# (gpui_platform is not on the registry). Distributed as a bundled .app.
+publish = false
 
 [[bin]]
 name = "openlogi-gui"

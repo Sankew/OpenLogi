@@ -18,7 +18,7 @@ CLI:
 ```sh
 git clone https://github.com/AprilNEA/OpenLogi
 cd OpenLogi
-cargo run -p openlogi-cli --release -- list
+cargo run -p openlogi --release -- list
 ```
 
 Desktop app:
@@ -40,8 +40,7 @@ is a transparent passthrough for everything else (the CLI, tests); set
 To install the CLI binary on `PATH`:
 
 ```sh
-cargo build -p openlogi-cli --release
-cp target/release/openlogi ~/.local/bin/
+cargo install --path .
 ```
 
 ## Using devenv (macOS)
@@ -72,12 +71,13 @@ expose `libSystem` the way Apple's real linker wants.
 ## Project layout
 
 ```
+src/                the `openlogi` binary (workspace root package) — a thin wrapper over openlogi-cli
 crates/
   openlogi-core/    types, config (TOML), paths, button + action catalog — no HID, no async
   openlogi-hid/     hidpp + async-hid: enumerate(), DPI (0x2201) and SmartShift (0x2111) writes
   openlogi-assets/  device-render registry schema + cached HTTP fetch from assets.openlogi.org
+  openlogi-cli/     CLI implementation: command tree + `run()`, called by the `openlogi` binary
   openlogi-hook/    macOS CGEventTap mouse hook + Accessibility + frontmost-app detection
-  openlogi-cli/     the `openlogi` binary
   openlogi-gui/     the `openlogi-gui` binary — GPUI + gpui-component
 ```
 

@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 description = "Core types, config, and paths for OpenLogi. No I/O specifics."
+keywords = ["logitech", "hidpp", "config", "mouse", "hid"]
+categories = ["hardware-support", "config"]
 
 [dependencies]
 serde = { workspace = true }

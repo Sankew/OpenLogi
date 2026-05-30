@@ -35,7 +35,7 @@
   tasks = {
     "openlogi:run" = {
       description = "List connected Logitech HID++ devices.";
-      exec = "cargo run -p openlogi-cli -- list";
+      exec = "cargo run -p openlogi -- list";
     };
     "openlogi:gui" = {
       description = "Run the desktop app.";
@@ -52,7 +52,7 @@
     };
     "openlogi:assets" = {
       description = "Sync device assets.";
-      exec = "cargo run -p openlogi-cli --release -- assets sync";
+      exec = "cargo run -p openlogi --release -- assets sync";
     };
     "openlogi:bundle" = {
       description = "Build OpenLogi.app.";
@@ -63,7 +63,7 @@
         fi
         bash scripts/macos-icns.sh
         if [ "''${OPENLOGI_BUNDLE_ASSETS:-0}" = "1" ]; then
-          cargo run -p openlogi-cli --release -- assets sync
+          cargo run -p openlogi --release -- assets sync
         else
           rm -rf crates/openlogi-gui/assets
           mkdir -p crates/openlogi-gui/assets
