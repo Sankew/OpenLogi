@@ -69,7 +69,9 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "196b9259b562c26be97c92f88c798bbeefa9cb3d" }
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+# Denied workspace-wide, but `deny` (not `forbid`) so a crate that genuinely
+# needs FFI can opt in locally with `#[expect(unsafe_code, reason = "…")]`.
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

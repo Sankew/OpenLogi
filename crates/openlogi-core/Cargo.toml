@@ -24,3 +24,4 @@ workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = { version = "0.25.0", features = ["highsierra"] }
+core-foundation = { workspace = true }

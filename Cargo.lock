@@ -4397,6 +4397,7 @@ dependencies = [
 name = "openlogi-core"
 version = "0.0.1"
 dependencies = [
+ "core-foundation 0.10.0",
  "core-graphics 0.25.0",
  "serde",
  "tempfile",

@@ -23,7 +23,7 @@ use hidpp::{
     protocol::v20,
     receiver::{self, Receiver},
 };
-use openlogi_core::binding::{ButtonId, GestureDirection, classify_gesture};
+use openlogi_core::binding::{ButtonId, GestureDirection, detect_swipe};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, warn};
@@ -31,12 +31,6 @@ use tracing::{debug, info, warn};
 use crate::reprog_controls::{self, RawControlEvent, ReprogControlsV4};
 use crate::thumbwheel::{self, Thumbwheel};
 use crate::transport::{enumerate_hidpp_devices, open_hidpp_channel};
-
-/// Minimum accumulated raw-XY travel (device units) before a gesture hold counts
-/// as a directional swipe instead of a [`GestureDirection::Click`]. Raw
-/// resolution is device-specific, so this is a starting point to tune on real
-/// hardware.
-const MIN_TRAVEL: u32 = 50;
 
 /// Which device to capture from. Mirrors how DPI / SmartShift writes target a
 /// device: an optional Bolt receiver UID plus a pairing slot.
@@ -86,9 +80,12 @@ pub enum GestureError {
 struct CaptureAccum {
     /// Whether the gesture button is currently held.
     gesture_held: bool,
-    /// Accumulated raw-XY travel while the gesture button is held.
+    /// Accumulated raw-XY travel since the press began.
     dx: i32,
     dy: i32,
+    /// Whether a directional swipe has already committed during this hold.
+    /// Gestures fire mid-swipe (like Options+) and once per press.
+    fired: bool,
     /// Whether any DPI/ModeShift control was held in the last event — for
     /// rising-edge press detection.
     dpi_down: bool,
@@ -309,7 +306,8 @@ async fn enumerate_controls(
     Ok(controls)
 }
 
-/// Update `acc` and emit on a decoded `0x1b04` event: classify gesture swipes on
+/// Update `acc` and emit on a decoded `0x1b04` event: commit a gesture swipe the
+/// instant it crosses the threshold (mid-swipe, like Options+) rather than on
 /// release, and emit a [`ButtonId::DpiToggle`] press on the rising edge of any
 /// diverted DPI/ModeShift control.
 fn handle_reprog(
@@ -325,11 +323,14 @@ fn handle_reprog(
                 acc.gesture_held = true;
                 acc.dx = 0;
                 acc.dy = 0;
+                acc.fired = false;
             } else if !gesture_held && acc.gesture_held {
                 acc.gesture_held = false;
-                let direction = classify_gesture(acc.dx, acc.dy, MIN_TRAVEL);
-                debug!(?direction, dx = acc.dx, dy = acc.dy, "gesture released");
-                let _ = sink.send(CapturedInput::Gesture(direction));
+                // A press that never committed a direction is a plain click.
+                if !acc.fired {
+                    debug!("gesture click");
+                    let _ = sink.send(CapturedInput::Gesture(GestureDirection::Click));
+                }
             }
 
             let dpi_down = dpi_cids.iter().any(|cid| cids.contains(cid));
@@ -339,9 +340,16 @@ fn handle_reprog(
             acc.dpi_down = dpi_down;
         }
         RawControlEvent::RawXy { dx, dy } => {
-            if acc.gesture_held {
+            // Accumulate until a clean direction commits, then fire immediately
+            // and ignore the rest of the hold (one gesture per press).
+            if acc.gesture_held && !acc.fired {
                 acc.dx = acc.dx.saturating_add(i32::from(dx));
                 acc.dy = acc.dy.saturating_add(i32::from(dy));
+                if let Some(direction) = detect_swipe(acc.dx, acc.dy) {
+                    debug!(?direction, dx = acc.dx, dy = acc.dy, "gesture committed");
+                    acc.fired = true;
+                    let _ = sink.send(CapturedInput::Gesture(direction));
+                }
             }
         }
     }

@@ -120,35 +120,51 @@ impl fmt::Display for GestureDirection {
     }
 }
 
-/// Classify an accumulated raw-XY swipe — the summed `dx`/`dy` the device
-/// reports while the gesture button is held — into one of the five
-/// [`GestureDirection`] slots.
+/// Minimum dominant-axis travel (raw-XY units) before a held gesture commits to
+/// a direction. Tuned to match Logitech Options+'s responsiveness.
+pub const GESTURE_SWIPE_THRESHOLD: i32 = 50;
+/// Maximum cross-axis travel allowed at the threshold, so only a reasonably
+/// straight swipe commits. Grows with the dominant axis (`max(deadzone, 35%)`).
+pub const GESTURE_SWIPE_DEADZONE: i32 = 40;
+
+/// Classify the *running* raw-XY travel of a held gesture button into a
+/// directional swipe, the instant it commits — or `None` while it's still too
+/// short or too diagonal.
 ///
-/// Returns [`GestureDirection::Click`] when the total travel is shorter than
-/// `min_travel` (a press with no meaningful movement). Otherwise the dominant
-/// axis decides: larger `|dx|` ⇒ Left/Right, larger `|dy|` ⇒ Up/Down, with ties
-/// favouring the horizontal axis. Coordinates follow the device's raw-XY
-/// convention (`+x` = right, `+y` = down), so an upward swipe (negative `dy`)
-/// maps to [`GestureDirection::Up`]; flip the sign at the call site for a device
-/// that reports an inverted axis.
+/// The dominant axis must pass [`GESTURE_SWIPE_THRESHOLD`] while the cross axis
+/// stays within `max(`[`GESTURE_SWIPE_DEADZONE`]`, 35% of dominant)`. Callers
+/// fire the bound action the moment this returns `Some` — mid-swipe, like
+/// Options+ — rather than waiting for the button release; a press that never
+/// commits a direction is treated as [`GestureDirection::Click`] on release.
+///
+/// Coordinates follow the device's raw-XY convention (`+x` = right, `+y` =
+/// down), so an upward swipe (negative `dy`) maps to [`GestureDirection::Up`].
 #[must_use]
-pub fn classify_gesture(dx: i32, dy: i32, min_travel: u32) -> GestureDirection {
-    let dxl = i64::from(dx);
-    let dyl = i64::from(dy);
-    let min = i64::from(min_travel);
-    if dxl * dxl + dyl * dyl < min * min {
-        return GestureDirection::Click;
+pub fn detect_swipe(dx: i32, dy: i32) -> Option<GestureDirection> {
+    let (abs_x, abs_y) = (dx.abs(), dy.abs());
+    let dominant = abs_x.max(abs_y);
+    if dominant < GESTURE_SWIPE_THRESHOLD {
+        return None;
     }
-    if dx.unsigned_abs() >= dy.unsigned_abs() {
-        if dx >= 0 {
+    let cross_limit = GESTURE_SWIPE_DEADZONE.max(dominant * 35 / 100);
+    if abs_x > abs_y {
+        if abs_y > cross_limit {
+            return None;
+        }
+        Some(if dx > 0 {
             GestureDirection::Right
         } else {
             GestureDirection::Left
-        }
-    } else if dy >= 0 {
-        GestureDirection::Down
+        })
     } else {
-        GestureDirection::Up
+        if abs_x > cross_limit {
+            return None;
+        }
+        Some(if dy > 0 {
+            GestureDirection::Down
+        } else {
+            GestureDirection::Up
+        })
     }
 }
 
@@ -557,9 +573,11 @@ impl Action {
     /// On macOS, key events are posted via `CGEventPost(kCGHIDEventTap, …)`
     /// using virtual key codes from the standard US keyboard layout, and the
     /// `LeftClick`/`RightClick`/`MiddleClick` variants synthesise a mouse click
-    /// at the current cursor location. Device-side actions with no CGEvent
-    /// equivalent (`CycleDpiPresets`, `SetDpiPreset`, `ToggleSmartShift`) are
-    /// handled at the hook/HID layer and log a debug trace here instead.
+    /// at the current cursor location. The WindowServer actions (`MissionControl`,
+    /// `AppExpose`, `ShowDesktop`, `LaunchpadShow`) are posted straight to the
+    /// Dock via `CoreDockSendNotification`. Device-side actions (`CycleDpiPresets`,
+    /// `SetDpiPreset`, `ToggleSmartShift`) have no CGEvent equivalent and are
+    /// handled at the hook/HID layer, logging a trace here.
     ///
     /// On other platforms a warning is logged and the function returns
     /// immediately — the binary compiles clean on all targets.
@@ -616,15 +634,16 @@ impl Action {
             Action::NextTab => macos::post_key(VK_TAB, ctrl),
             Action::PrevTab => macos::post_key(VK_TAB, ctrl | shift),
             Action::ReloadPage => macos::post_key(VK_R, cmd),
-            // ── Navigation / Window ───────────────────────────────────────────
-            // Mission Control = Ctrl+Up (kVK_UpArrow = 0x7E)
-            Action::MissionControl => macos::post_key(0x7E, ctrl),
-            // App Exposé = Ctrl+Down (kVK_DownArrow = 0x7D)
-            Action::AppExpose => macos::post_key(0x7D, ctrl),
-            // Show Desktop = Cmd+F3 (kVK_F3 = 0x63)
-            Action::ShowDesktop => macos::post_key(0x63, cmd),
-            // Launchpad = F4 (kVK_F4 = 0x76)
-            Action::LaunchpadShow => macos::post_key(0x76, none),
+            // ── Navigation / Window: posted straight to the Dock ──────────────
+            // Synthesising these shortcuts is unreliable — the WindowServer
+            // matcher needs the exact configured key (incl. the Fn flag) and
+            // Show Desktop ignores synthetic events entirely — so they go to the
+            // Dock via `CoreDockSendNotification`, which fires regardless of the
+            // user's keyboard settings.
+            Action::MissionControl => macos::mission_control(),
+            Action::AppExpose => macos::app_expose(),
+            Action::ShowDesktop => macos::show_desktop(),
+            Action::LaunchpadShow => macos::launchpad(),
             // ── System ────────────────────────────────────────────────────────
             // Lock screen = Cmd+Ctrl+Q (kVK_ANSI_Q = 0x0C)
             Action::LockScreen => macos::post_key(0x0C, cmd | ctrl),
@@ -840,6 +859,99 @@ mod macos {
         };
         ev.post(CGEventTapLocation::HID);
     }
+
+    pub(super) use dock::{app_expose, launchpad, mission_control, show_desktop};
+
+    /// WindowServer window/space actions (Mission Control, App Exposé, Show
+    /// Desktop, Launchpad).
+    ///
+    /// These are driven by the Dock, and synthesising their keyboard shortcut is
+    /// unreliable — the WindowServer matcher needs the exact configured key
+    /// (incl. the Fn flag) and Show Desktop's in particular doesn't respond. So
+    /// we post the action straight to the Dock via the private
+    /// `CoreDockSendNotification` SPI, which fires it regardless of the user's
+    /// Keyboard settings.
+    ///
+    /// Isolated in its own submodule so the `unsafe` the `dlopen`/`dlsym` FFI
+    /// needs is scoped here rather than spread across the platform helpers.
+    #[allow(
+        unsafe_code,
+        reason = "the private CoreDockSendNotification SPI is only reachable via dlopen/dlsym FFI"
+    )]
+    mod dock {
+        use std::ffi::{CStr, c_char, c_int, c_void};
+        use std::sync::OnceLock;
+
+        use core_foundation::base::TCFType;
+        use core_foundation::string::CFString;
+
+        /// Show all windows across spaces (Mission Control).
+        pub(crate) fn mission_control() {
+            send("com.apple.expose.awake");
+        }
+
+        /// Show the front app's windows (App Exposé).
+        pub(crate) fn app_expose() {
+            send("com.apple.expose.front.awake");
+        }
+
+        /// Move all windows aside to reveal the desktop.
+        pub(crate) fn show_desktop() {
+            send("com.apple.showdesktop.awake");
+        }
+
+        /// Toggle Launchpad. A no-op on macOS 26, which removed Launchpad.
+        pub(crate) fn launchpad() {
+            send("com.apple.launchpad.toggle");
+        }
+
+        /// Post `notification` to the Dock. Logs and returns on any failure.
+        fn send(notification: &str) {
+            let Some(core_dock_send) = core_dock_send_notification() else {
+                tracing::warn!(notification, "CoreDockSendNotification unavailable");
+                return;
+            };
+            let name = CFString::new(notification);
+            // SAFETY: resolved AppServices symbol called with its documented
+            // signature; `name` is a live CFString for the call's duration.
+            let err = unsafe { core_dock_send(name.as_concrete_TypeRef().cast(), 0) };
+            if err != 0 {
+                tracing::warn!(notification, err, "CoreDockSendNotification failed");
+            }
+        }
+
+        type CoreDockSendNotificationFn = unsafe extern "C" fn(*const c_void, c_int) -> c_int;
+
+        /// Resolve `CoreDockSendNotification` from `ApplicationServices`, caching
+        /// the `dlopen` handle for the process lifetime. `None` if unavailable.
+        fn core_dock_send_notification() -> Option<CoreDockSendNotificationFn> {
+            const RTLD_LAZY: c_int = 0x1;
+            const APP_SERVICES: &CStr =
+                c"/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices";
+            static HANDLE: OnceLock<usize> = OnceLock::new();
+
+            // SAFETY: `dlopen`/`dlsym` come from libSystem; APP_SERVICES is a
+            // valid C string. The handle is cached and intentionally never
+            // closed.
+            let sym = unsafe {
+                let handle =
+                    *HANDLE.get_or_init(|| dlopen(APP_SERVICES.as_ptr(), RTLD_LAZY) as usize);
+                if handle == 0 {
+                    return None;
+                }
+                dlsym(handle as *mut c_void, c"CoreDockSendNotification".as_ptr())
+            };
+            // SAFETY: the symbol, when present, has the documented signature.
+            (!sym.is_null()).then(|| unsafe {
+                std::mem::transmute::<*mut c_void, CoreDockSendNotificationFn>(sym)
+            })
+        }
+
+        unsafe extern "C" {
+            fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
+            fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+        }
+    }
 }
 
 /// Sensible defaults for a fresh device so the panel isn't empty on first run.
@@ -925,23 +1037,25 @@ mod tests {
     // ── Gesture classification ────────────────────────────────────────────────
 
     #[test]
-    fn classify_gesture_short_travel_is_click() {
-        assert_eq!(classify_gesture(3, -2, 32), GestureDirection::Click);
-        assert_eq!(classify_gesture(0, 0, 32), GestureDirection::Click);
+    fn detect_swipe_below_threshold_keeps_accumulating() {
+        // Too little travel to commit — caller keeps summing raw-XY.
+        assert_eq!(detect_swipe(40, 5), None);
+        assert_eq!(detect_swipe(0, 0), None);
     }
 
     #[test]
-    fn classify_gesture_dominant_axis_wins() {
-        assert_eq!(classify_gesture(120, 5, 32), GestureDirection::Right);
-        assert_eq!(classify_gesture(-120, 5, 32), GestureDirection::Left);
-        assert_eq!(classify_gesture(5, 120, 32), GestureDirection::Down);
-        assert_eq!(classify_gesture(5, -120, 32), GestureDirection::Up);
+    fn detect_swipe_commits_clean_direction() {
+        assert_eq!(detect_swipe(120, 5), Some(GestureDirection::Right));
+        assert_eq!(detect_swipe(-120, 5), Some(GestureDirection::Left));
+        assert_eq!(detect_swipe(5, 120), Some(GestureDirection::Down));
+        assert_eq!(detect_swipe(5, -120), Some(GestureDirection::Up));
     }
 
     #[test]
-    fn classify_gesture_ties_favor_horizontal() {
-        assert_eq!(classify_gesture(50, 50, 32), GestureDirection::Right);
-        assert_eq!(classify_gesture(-50, -50, 32), GestureDirection::Left);
+    fn detect_swipe_rejects_diagonal() {
+        // Past the threshold but too diagonal (cross axis beyond the band).
+        assert_eq!(detect_swipe(60, 60), None);
+        assert_eq!(detect_swipe(-60, -60), None);
     }
 
     // ── TOML roundtrip ────────────────────────────────────────────────────────
