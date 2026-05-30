@@ -23,6 +23,7 @@ macro_rules! tr {
 }
 
 mod app;
+mod app_assets;
 mod app_menu;
 mod asset;
 mod components;
@@ -115,10 +116,11 @@ fn main() -> Result<()> {
         watchers::accessibility::spawn(std::time::Duration::from_millis(1200));
     let (pairing_ctrl_tx, mut pairing_evt_rx) = watchers::pairing::spawn();
 
-    // `with_assets` registers the embedded lucide SVGs that back
-    // `gpui_component::IconName`; without it every `Icon` would fail to load.
+    // `with_assets` registers the embedded app logo ([`app_assets`]) plus the
+    // lucide SVGs that back `gpui_component::IconName`; without it `img()` /
+    // `Icon` would fail to load.
     gpui_platform::application()
-        .with_assets(gpui_component_assets::Assets)
+        .with_assets(app_assets::AppAssets)
         .run(move |cx| {
             gpui_component::init(cx);
             app_menu::install(cx);

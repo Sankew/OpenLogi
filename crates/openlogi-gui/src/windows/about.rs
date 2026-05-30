@@ -1,15 +1,13 @@
 //! The About window — a small standalone OS window (menu / footer link)
-//! showing the wordmark, version, a one-line description, and outbound links.
+//! showing the app logo, wordmark, version, a one-line description, and
+//! outbound links.
 //!
-//! The app icon is intentionally omitted: `img()` resolves filesystem paths,
-//! and `design/icon/openlogi.png` isn't embedded as a runtime asset, so the
-//! path wouldn't resolve inside a packaged `.app`. A text wordmark is correct
-//! everywhere; embedding the icon (`include_bytes!` + an `AssetSource`) remains
-//! a follow-up.
+//! The logo is the embedded `openlogi.png` served by [`crate::app_assets`], so
+//! `img()` resolves it the same inside a packaged `.app` as in a dev build.
 
 use gpui::{
     App, Context, FontWeight, IntoElement, ParentElement as _, Render, Size, Styled as _,
-    Subscription, Window, div, px,
+    Subscription, Window, div, img, px,
 };
 use gpui_component::{IconName, button::Button, h_flex, v_flex};
 
@@ -62,6 +60,7 @@ impl Render for AboutView {
             .justify_center()
             .gap_3()
             .p_8()
+            .child(img(crate::app_assets::LOGO).w(px(72.)).h(px(72.)))
             .child(
                 div()
                     .text_2xl()
