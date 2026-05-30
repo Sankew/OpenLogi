@@ -6,6 +6,11 @@
 # released in lockstep (the highest next version among them wins), and a single
 # `v{version}` tag + GitHub Release is cut for the workspace as a whole — which is
 # what `.github/workflows/release.yml` listens on to build the macOS DMG.
+#
+# Single changelog: every crate points `changelog_path` at the repo-root
+# CHANGELOG.md, so release-plz aggregates all crates' sections into that one file
+# instead of scattering a CHANGELOG.md into each crate directory. (changelog_path
+# is per-package only — it can't be set in [workspace].)
 
 [workspace]
 # Per-crate tags/releases are off; the root crate owns the one workspace release.
@@ -15,6 +20,7 @@ git_release_enable = false
 [[package]]
 name = "openlogi"
 version_group = "openlogi"
+changelog_path = "CHANGELOG.md"
 git_tag_enable = true
 git_tag_name = "v{{ version }}"
 git_release_enable = true
@@ -23,22 +29,27 @@ git_release_name = "v{{ version }}"
 [[package]]
 name = "openlogi-core"
 version_group = "openlogi"
+changelog_path = "CHANGELOG.md"
 
 [[package]]
 name = "openlogi-hid"
 version_group = "openlogi"
+changelog_path = "CHANGELOG.md"
 
 [[package]]
 name = "openlogi-assets"
 version_group = "openlogi"
+changelog_path = "CHANGELOG.md"
 
 [[package]]
 name = "openlogi-cli"
 version_group = "openlogi"
+changelog_path = "CHANGELOG.md"
 
 [[package]]
 name = "openlogi-hook"
 version_group = "openlogi"
+changelog_path = "CHANGELOG.md"
 
 # Not publishable (git-only gpui deps); keep release-plz out of it entirely.
 # Its version still follows the shared workspace version via inheritance.
