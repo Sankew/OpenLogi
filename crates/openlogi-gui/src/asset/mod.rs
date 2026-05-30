@@ -13,15 +13,18 @@
 //! ultimately to the synthetic silhouette. The write side ([`sync::sync`])
 //! always targets the user cache — the bundle is read-only.
 
+mod images;
+mod paths;
 pub mod sync;
 
 use std::path::{Path, PathBuf};
 
-use openlogi_assets::{DepotManifest, DeviceEntry, Index, Metadata};
+use openlogi_assets::{DeviceEntry, Index, Metadata};
 use openlogi_core::device::DeviceModelInfo;
 use tracing::{debug, warn};
 
-const INDEX_FILE: &str = "index.json";
+use self::images::{buttons_image_for, read_png_dimensions, variant_image_for};
+use self::paths::{bundle_assets_root, load_index, user_cache_root};
 
 #[derive(Debug, Clone)]
 pub struct ResolvedAsset {
@@ -184,120 +187,10 @@ impl AssetResolver {
     }
 }
 
-/// Read width + height from a PNG's `IHDR` chunk.
-///
-/// PNG layout: 8-byte signature, then chunks. The first chunk is always
-/// `IHDR` per the spec, located at bytes 12–24: 4 bytes length, 4 bytes
-/// type tag, then the data. The first 8 data bytes are width + height as
-/// big-endian u32s. We only need those 24 leading bytes — much cheaper
-/// than decoding the whole image.
-fn read_png_dimensions(path: &Path) -> std::io::Result<(u32, u32)> {
-    use std::fs::File;
-    use std::io::{Read, Seek, SeekFrom};
-    const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
-    let mut file = File::open(path)?;
-    let mut header = [0u8; 24];
-    file.read_exact(&mut header)?;
-    if header[0..8] != PNG_SIGNATURE {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "missing PNG signature",
-        ));
-    }
-    if &header[12..16] != b"IHDR" {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "missing IHDR chunk",
-        ));
-    }
-    let width = u32::from_be_bytes([header[16], header[17], header[18], header[19]]);
-    let height = u32::from_be_bytes([header[20], header[21], header[22], header[23]]);
-    // Re-seek to start so any later reader sees the full file.
-    file.seek(SeekFrom::Start(0))?;
-    Ok((width, height))
-}
-
-/// Walk the depot's `manifest.json` (if present) for the colour
-/// variant matching `ext`. Returns the `device_image` src filename or
-/// `None` when the manifest is missing / malformed / lacks the variant.
-fn variant_image_for(dir: &Path, base_model_id: &str, ext: u8) -> Option<String> {
-    let manifest = load_manifest(dir)?;
-    manifest
-        .resource_for_variant(base_model_id, ext, "device_image")
-        .map(str::to_string)
-}
-
-/// Like [`variant_image_for`] but returns the `device_buttons_image`
-/// resource (typically `side_*.png`) — that's the view Logi calibrates
-/// the assignment markers against, so the mouse-model render uses it.
-fn buttons_image_for(dir: &Path, base_model_id: &str, ext: u8) -> Option<String> {
-    let manifest = load_manifest(dir)?;
-    manifest
-        .resource_for_variant(base_model_id, ext, "device_buttons_image")
-        .map(str::to_string)
-}
-
-fn load_manifest(dir: &Path) -> Option<DepotManifest> {
-    let manifest_path = dir.join("manifest.json");
-    if !manifest_path.exists() {
-        return None;
-    }
-    DepotManifest::load_from(&manifest_path)
-        .map_err(
-            |e| warn!(error = ?e, path = %manifest_path.display(), "depot manifest unreadable"),
-        )
-        .ok()
-}
-
 impl Default for AssetResolver {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Per-user writable cache root: `openlogi_core::paths::data_dir()` plus an
-/// `assets/` subdir, keeping the render cache out of the config dir. Falls
-/// back to `./assets` only when no home directory can be resolved.
-fn user_cache_root() -> PathBuf {
-    openlogi_core::paths::data_dir()
-        .map_or_else(|_| PathBuf::from("./assets"), |d| d.join("assets"))
-}
-
-/// Read-only root pointing inside the macOS `.app` bundle when the binary
-/// is launched from one: `<exe_dir>/../Resources/assets/`. The probe also
-/// requires an `index.json` inside — an empty dir (e.g. `cargo bundle`
-/// run without first syncing) is treated as not-present so the runtime
-/// HTTP fallback can still recover.
-fn bundle_assets_root() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let candidate = exe.parent()?.parent()?.join("Resources").join("assets");
-    candidate.join(INDEX_FILE).is_file().then_some(candidate)
-}
-
-/// Walk read roots looking for the first parseable `index.json`. Bundle
-/// wins over user cache so a release-time snapshot stays authoritative.
-fn load_index(roots: &[PathBuf]) -> Option<Index> {
-    for root in roots {
-        let path = root.join(INDEX_FILE);
-        if !path.exists() {
-            continue;
-        }
-        match Index::load_from(&path) {
-            Ok(idx) => {
-                debug!(
-                    devices = idx.devices.len(),
-                    root = %root.display(),
-                    "asset index loaded"
-                );
-                return Some(idx);
-            }
-            Err(e) => {
-                warn!(error = ?e, root = %root.display(), "failed to parse asset index");
-            }
-        }
-    }
-    debug!("no asset index found — using synthetic silhouette for all devices");
-    None
 }
 
 /// Match a connected device's HID++ model info against a loaded index,

@@ -8,6 +8,9 @@
 //! fresh one wired for per-window light/dark tracking (mirroring the main
 //! window's appearance observer in `main.rs`).
 
+pub mod about;
+pub mod settings;
+
 use gpui::{
     App, AppContext as _, Bounds, Context, Global, Pixels, Render, SharedString, Size, Styled as _,
     Subscription, TitlebarOptions, WindowBounds, WindowHandle, WindowOptions,

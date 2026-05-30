@@ -1,4 +1,4 @@
-//! macOS `LaunchAgent` reconciliation.
+//! macOS `LaunchAgent` reconciliation for launch-at-login.
 //!
 //! When `Config::app_settings.launch_at_login` is `true`, a plist at
 //! `~/Library/LaunchAgents/org.openlogi.openlogi.plist` is kept in sync

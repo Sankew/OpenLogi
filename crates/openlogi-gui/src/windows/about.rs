@@ -4,8 +4,8 @@
 //! The app icon is intentionally omitted: `img()` resolves filesystem paths,
 //! and `design/icon/openlogi.png` isn't embedded as a runtime asset, so the
 //! path wouldn't resolve inside a packaged `.app`. A text wordmark is correct
-//! everywhere; embedding the icon (`include_bytes!` + an `AssetSource`) is a
-//! follow-up.
+//! everywhere; embedding the icon (`include_bytes!` + an `AssetSource`) remains
+//! a follow-up.
 
 use gpui::{
     App, Context, FontWeight, IntoElement, ParentElement as _, Render, Size, Styled as _,

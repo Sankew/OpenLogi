@@ -23,63 +23,21 @@ use openlogi_core::device::DeviceInventory;
 use openlogi_hook::Hook;
 use tracing::{debug, warn};
 
-use crate::asset::{AssetResolver, ResolvedAsset};
-use crate::components::dpi_panel::DpiTarget;
-use crate::data::mouse_buttons::{
-    Action, ButtonId, GestureDirection, default_binding, default_gesture_binding,
-};
+mod bindings;
+mod devices;
+mod dpi;
+
+pub use devices::DeviceRecord;
+pub use dpi::DpiCycleState;
+
+use crate::asset::AssetResolver;
+use crate::data::mouse_buttons::{Action, ButtonId, GestureDirection};
+use crate::state::bindings::{bindings_for, gesture_bindings_for};
+use crate::state::devices::{build_device_list, pick_initial_device};
 
 /// Default DPI value applied to a fresh AppState. Matches a common Logitech
 /// mid-range mouse and keeps the dot-preview visually obvious from frame one.
 pub const DEFAULT_DPI: u32 = 1600;
-
-/// One paired device with everything the UI needs to switch to it in O(1):
-/// the config key (for bindings/DPI persistence), a display name, the
-/// resolved asset (PNG + metadata, or `None` for the synthetic fallback),
-/// and the routing target for HID++ DPI writes.
-#[derive(Debug, Clone)]
-pub struct DeviceRecord {
-    pub config_key: String,
-    pub display_name: String,
-    pub asset: Option<ResolvedAsset>,
-    pub dpi_target: Option<DpiTarget>,
-}
-
-/// Shared state consumed by the OS hook thread (P0.1) and the DPI panel UI
-/// to implement [`Action::CycleDpiPresets`] / [`Action::SetDpiPreset`].
-///
-/// `index` is the position of the *current* DPI (i.e. the one last set on the
-/// device), not the next-to-fire. `cycle` advances and returns the new value.
-#[derive(Debug, Clone, Default)]
-pub struct DpiCycleState {
-    pub presets: Vec<u32>,
-    pub index: usize,
-    pub target: Option<DpiTarget>,
-}
-
-impl DpiCycleState {
-    /// Advance to the next preset (wrapping last → first) and return the new
-    /// DPI + the device target to write to. Returns `None` if `presets` is
-    /// empty.
-    pub fn cycle(&mut self) -> Option<(u32, Option<DpiTarget>)> {
-        if self.presets.is_empty() {
-            return None;
-        }
-        self.index = (self.index + 1) % self.presets.len();
-        Some((self.presets[self.index], self.target.clone()))
-    }
-
-    /// Jump to preset `i`, clamping to the list length. Returns the DPI +
-    /// target, or `None` if `presets` is empty.
-    pub fn set(&mut self, i: usize) -> Option<(u32, Option<DpiTarget>)> {
-        if self.presets.is_empty() {
-            return None;
-        }
-        let clamped = i.min(self.presets.len() - 1);
-        self.index = clamped;
-        Some((self.presets[clamped], self.target.clone()))
-    }
-}
 
 pub struct AppState {
     /// Index into [`Self::device_list`] of the currently visible device. May
@@ -368,7 +326,7 @@ impl AppState {
         if let Err(e) = self.config.save_atomic() {
             warn!(error = %e, "could not persist launch-at-login setting");
         }
-        crate::launch_agent::reconcile(enabled);
+        crate::platform::launch_agent::reconcile(enabled);
     }
 
     /// Toggle the opt-in update check and persist it. No immediate side
@@ -526,76 +484,3 @@ impl AppState {
 }
 
 impl Global for AppState {}
-
-fn build_device_list(inventories: &[DeviceInventory], cache: &AssetResolver) -> Vec<DeviceRecord> {
-    let mut list = Vec::new();
-    for inv in inventories {
-        let receiver_uid = inv.receiver.unique_id.clone();
-        for paired in &inv.paired {
-            let Some(model) = paired.model_info.as_ref() else {
-                continue;
-            };
-            let config_key = model.config_key();
-            let asset = cache.resolve(model);
-            let display_name = asset
-                .as_ref()
-                .map(|a| a.display_name.clone())
-                .or_else(|| paired.codename.clone())
-                .unwrap_or_else(|| format!("Slot {}", paired.slot));
-            let dpi_target = receiver_uid.as_ref().map(|uid| DpiTarget {
-                receiver_uid: uid.clone(),
-                slot: paired.slot,
-            });
-            list.push(DeviceRecord {
-                config_key,
-                display_name,
-                asset,
-                dpi_target,
-            });
-        }
-    }
-    list
-}
-
-fn pick_initial_device(list: &[DeviceRecord], saved: Option<&str>) -> usize {
-    saved
-        .and_then(|key| list.iter().position(|r| r.config_key == key))
-        .unwrap_or(0)
-}
-
-fn bindings_for(
-    config: &Config,
-    record: Option<&DeviceRecord>,
-    app_bundle: Option<&str>,
-) -> BTreeMap<ButtonId, Action> {
-    let stored = record
-        .map(|r| config.effective_bindings(&r.config_key, app_bundle))
-        .unwrap_or_default();
-    let mut bindings: BTreeMap<ButtonId, Action> = ButtonId::ALL
-        .iter()
-        .copied()
-        .map(|b| (b, default_binding(b)))
-        .collect();
-    for (k, v) in stored {
-        bindings.insert(k, v);
-    }
-    bindings
-}
-
-fn gesture_bindings_for(
-    config: &Config,
-    record: Option<&DeviceRecord>,
-) -> BTreeMap<GestureDirection, Action> {
-    let stored = record
-        .map(|r| config.gesture_bindings_for(&r.config_key))
-        .unwrap_or_default();
-    let mut bindings: BTreeMap<GestureDirection, Action> = GestureDirection::ALL
-        .iter()
-        .copied()
-        .map(|d| (d, default_gesture_binding(d)))
-        .collect();
-    for (k, v) in stored {
-        bindings.insert(k, v);
-    }
-    bindings
-}

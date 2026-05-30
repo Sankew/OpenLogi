@@ -1,3 +1,5 @@
+//! Accessibility permission polling watcher.
+
 use std::thread;
 use std::time::Duration;
 

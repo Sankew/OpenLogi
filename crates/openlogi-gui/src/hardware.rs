@@ -8,7 +8,15 @@
 
 use tracing::{debug, warn};
 
-use crate::components::dpi_panel::DpiTarget;
+/// Identifies which physical device hardware-side writes should target.
+/// `receiver_uid` is the Bolt receiver's unique id (so writes route
+/// correctly when more than one receiver is plugged in); `slot` is the
+/// device's pairing slot on that receiver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DpiTarget {
+    pub receiver_uid: String,
+    pub slot: u8,
+}
 
 /// Spawn an OS thread that toggles SmartShift (free ↔ ratchet) on the
 /// device at `target` via `openlogi_hid::toggle_smartshift`. Returns

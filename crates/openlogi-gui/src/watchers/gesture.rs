@@ -1,11 +1,11 @@
-//! Background gesture-button capture for the active device.
+//! Background gesture-button watcher for the active device.
 //!
 //! Runs [`openlogi_hid::run_gesture_session`] on a dedicated thread for
 //! whichever device the DPI / SmartShift path currently targets
 //! ([`DpiCycleState::target`]), restarts it when the carousel selection
 //! changes, and dispatches each captured [`GestureDirection`] through the
 //! shared gesture binding map and the common action path
-//! ([`crate::dispatch_action`]).
+//! ([`crate::hook_runtime::dispatch_action`]).
 //!
 //! Unlike the CGEventTap hook, this needs no macOS Accessibility permission —
 //! gesture events arrive over HID++, and the bound action is synthesised the
@@ -21,7 +21,8 @@ use openlogi_hid::{GestureTarget, run_gesture_session};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
-use crate::components::dpi_panel::DpiTarget;
+use crate::hardware::DpiTarget;
+use crate::hook_runtime;
 use crate::state::DpiCycleState;
 
 /// Shared gesture-direction binding map, mirrored from `AppState` (same shape
@@ -70,7 +71,7 @@ async fn manage(bindings: GestureBindings, dpi_cycle: Arc<RwLock<DpiCycleState>>
                     .and_then(|guard| guard.get(&direction).cloned());
                 if let Some(action) = action {
                     debug!(?direction, action = %action.label(), "gesture → action");
-                    crate::dispatch_action(&action, &dpi_cycle);
+                    hook_runtime::dispatch_action(&action, &dpi_cycle);
                 } else {
                     debug!(?direction, "gesture with no binding — ignored");
                 }

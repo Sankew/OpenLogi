@@ -1,4 +1,4 @@
-//! Polling inventory watcher (P1.6 phase 1).
+//! Polling HID inventory watcher.
 //!
 //! Spawns a dedicated OS thread with a one-shot tokio runtime that calls
 //! `openlogi_hid::enumerate` every `period` and forwards the result over an

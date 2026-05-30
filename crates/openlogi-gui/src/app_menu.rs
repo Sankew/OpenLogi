@@ -42,8 +42,8 @@ pub fn install(cx: &mut App) {
         cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
     }
     cx.on_action(|_: &Quit, cx| cx.quit());
-    cx.on_action(|_: &OpenSettings, cx| crate::settings_window::open(cx));
-    cx.on_action(|_: &OpenAbout, cx| crate::about_window::open(cx));
+    cx.on_action(|_: &OpenSettings, cx| crate::windows::settings::open(cx));
+    cx.on_action(|_: &OpenAbout, cx| crate::windows::about::open(cx));
 
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),

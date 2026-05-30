@@ -1,4 +1,4 @@
-//! Cross-platform single-instance guard.
+//! Cross-platform single-instance process guard.
 //!
 //! On startup we try to acquire an exclusive, non-blocking lock on a known
 //! file under the user's data dir. Holding the lock keeps a second invocation

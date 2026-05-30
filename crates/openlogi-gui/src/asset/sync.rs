@@ -16,8 +16,6 @@ use openlogi_assets::{CORE_FILES, DepotManifest, DeviceEntry, FetchOutcome};
 use openlogi_core::device::DeviceModelInfo;
 use tracing::{debug, info, warn};
 
-use super::AssetResolver;
-
 /// Default origin for asset fetches. Overridable via `OPENLOGI_ASSETS`
 /// so dev / staging deployments can point elsewhere without a rebuild.
 pub const DEFAULT_BASE: &str = "https://assets.openlogi.org";
@@ -44,7 +42,7 @@ pub fn should_run(has_bundle: bool) -> bool {
 
 /// Refresh the local cache for every model the host can plausibly want.
 pub fn sync(server: &str, models: &[DeviceModelInfo]) -> Result<()> {
-    let cache_root = AssetResolver::new().cache_root().to_path_buf();
+    let cache_root = super::paths::user_cache_root();
     fs::create_dir_all(&cache_root)
         .with_context(|| format!("create cache root {}", cache_root.display()))?;
 

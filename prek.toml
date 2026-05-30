@@ -20,7 +20,7 @@ repo = "local"
 [[repos.hooks]]
 id = "cargo-fmt"
 name = "cargo fmt"
-entry = "cargo fmt --all --"
+entry = "devenv shell cargo fmt --all --"
 language = "system"
 types = ["rust"]
 pass_filenames = false
@@ -29,7 +29,7 @@ pass_filenames = false
 [[repos.hooks]]
 id = "cargo-clippy"
 name = "cargo clippy"
-entry = "cargo clippy --workspace --all-targets -- -D warnings"
+entry = "devenv shell cargo clippy --workspace --all-targets -- -D warnings"
 language = "system"
 types = ["rust"]
 pass_filenames = false

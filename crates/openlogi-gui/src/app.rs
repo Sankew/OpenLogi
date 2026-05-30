@@ -223,7 +223,7 @@ fn footer(pal: Palette) -> impl IntoElement {
                         .cursor_pointer()
                         .hover(|s| s.text_color(pal.text_primary))
                         .child("Settings")
-                        .on_click(|_, _, cx| crate::settings_window::open(cx)),
+                        .on_click(|_, _, cx| crate::windows::settings::open(cx)),
                 )
                 .child(div().child("·"))
                 .child(
@@ -232,7 +232,7 @@ fn footer(pal: Palette) -> impl IntoElement {
                         .cursor_pointer()
                         .hover(|s| s.text_color(pal.text_primary))
                         .child("About")
-                        .on_click(|_, _, cx| crate::about_window::open(cx)),
+                        .on_click(|_, _, cx| crate::windows::about::open(cx)),
                 ),
         )
         .child(

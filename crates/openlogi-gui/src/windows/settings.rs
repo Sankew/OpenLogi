@@ -4,7 +4,7 @@
 //! Two toggles for now, so the layout is a hand-rolled form rather than
 //! gpui-component's [`Settings`](gpui_component::setting::Settings) widget
 //! (whose 250px page sidebar would dwarf two switches). When the preference
-//! set grows enough to warrant pages, migrate to that widget.
+//! set grows enough to warrant pages, this can migrate to that widget.
 
 use gpui::{
     App, BorrowAppContext as _, Context, FontWeight, IntoElement, ParentElement as _, Render, Size,

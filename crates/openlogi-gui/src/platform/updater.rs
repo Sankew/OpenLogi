@@ -1,4 +1,4 @@
-//! Opt-in update check (P2.8).
+//! Opt-in update check.
 //!
 //! Off by default — controlled by [`AppSettings::check_for_updates`]. When
 //! enabled, performs **exactly one** `HEAD` request per launch against

@@ -1,0 +1,106 @@
+//! Runtime bridge between background input events and OpenLogi actions.
+//!
+//! The GPUI thread owns `AppState`, while the CGEventTap hook and HID++
+//! gesture watcher run outside it. This module contains the shared runtime
+//! surface between them: the binding map mirrored from `AppState`, lazy hook
+//! installation, and action dispatch for both hook and gesture events.
+
+use std::collections::BTreeMap;
+use std::sync::{Arc, RwLock};
+
+use openlogi_core::binding::{Action, ButtonId};
+use openlogi_hook::{EventDisposition, Hook, MouseEvent};
+use tracing::{info, warn};
+
+use crate::hardware::{toggle_smartshift_in_background, write_dpi_in_background};
+use crate::state::DpiCycleState;
+
+/// Shared binding map threaded between `AppState` and the hook callback.
+pub type BindingMap = Arc<RwLock<BTreeMap<ButtonId, Action>>>;
+
+/// Attempt to start the OS hook. Returns `None` if Accessibility is not
+/// granted or on an unsupported platform — the app continues without crashing.
+pub fn start(bindings: BindingMap, dpi_cycle: Arc<RwLock<DpiCycleState>>) -> Option<Hook> {
+    if !Hook::has_accessibility() {
+        warn!(
+            "Accessibility not granted — events will not be captured. \
+             Open System Settings → Privacy & Security → Accessibility."
+        );
+        return None;
+    }
+
+    let result = Hook::start(move |event| match event {
+        MouseEvent::Button { id, pressed } => {
+            let owned = matches!(id, ButtonId::Back | ButtonId::Forward);
+            if !owned {
+                return EventDisposition::PassThrough;
+            }
+            if pressed {
+                let action = bindings.read().ok().and_then(|g| g.get(&id).cloned());
+                if let Some(action) = action {
+                    info!(button = %id, action = %action.label(), "button → executing bound action");
+                    dispatch_action(&action, &dpi_cycle);
+                } else {
+                    info!(button = %id, "button pressed with no binding — suppressed");
+                }
+            }
+            EventDisposition::Suppress
+        }
+        MouseEvent::Scroll { .. } => EventDisposition::PassThrough,
+    });
+
+    match result {
+        Ok(hook) => {
+            info!("OS mouse hook installed");
+            Some(hook)
+        }
+        Err(e) => {
+            warn!(error = %e, "could not install OS mouse hook — events will not be captured");
+            None
+        }
+    }
+}
+
+/// Route a bound action either to OS-level event synthesis
+/// ([`Action::execute`]) or to one of OpenLogi's hardware-side handlers.
+///
+/// `dpi_cycle` is held across a write lock long enough to advance the index
+/// and snapshot the new DPI + target; the actual HID write spawns its own
+/// thread via [`write_dpi_in_background`] to keep event callbacks non-blocking.
+pub fn dispatch_action(action: &Action, dpi_cycle: &Arc<RwLock<DpiCycleState>>) {
+    let next = match action {
+        Action::CycleDpiPresets => match dpi_cycle.write() {
+            Ok(mut guard) => guard.cycle(),
+            Err(e) => {
+                warn!(error = %e, "dpi_cycle lock poisoned — cycle skipped");
+                None
+            }
+        },
+        Action::SetDpiPreset(i) => match dpi_cycle.write() {
+            Ok(mut guard) => guard.set(usize::from(*i)),
+            Err(e) => {
+                warn!(error = %e, "dpi_cycle lock poisoned — set skipped");
+                None
+            }
+        },
+        Action::ToggleSmartShift => {
+            let target = dpi_cycle.read().ok().and_then(|g| g.target.clone());
+            info!("SmartShift toggle → flipping wheel mode");
+            toggle_smartshift_in_background(target);
+            return;
+        }
+        other => {
+            other.execute();
+            None
+        }
+    };
+    if let Some((dpi, target)) = next {
+        info!(dpi, "DPI action → writing to device");
+        write_dpi_in_background(target, dpi);
+    } else if matches!(action, Action::CycleDpiPresets | Action::SetDpiPreset(_)) {
+        info!(
+            action = %action.label(),
+            "no DPI presets configured for active device — press ignored"
+        );
+    }
+}
