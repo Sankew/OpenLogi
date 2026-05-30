@@ -12,7 +12,13 @@
 /// an import (textual macro scope). Pairs with the `rust_i18n::i18n!` below.
 macro_rules! tr {
     ($($args:tt)*) => {
-        ::gpui::SharedString::from(::rust_i18n::t!($($args)*).into_owned())
+        // `t!` yields `Cow<'static, str>`. A borrowed hit — the common case: a
+        // found translation or the English-key fallback — wraps into a
+        // `SharedString` with no copy; only owned (interpolated) results allocate.
+        match ::rust_i18n::t!($($args)*) {
+            ::std::borrow::Cow::Borrowed(s) => ::gpui::SharedString::from(s),
+            ::std::borrow::Cow::Owned(s) => ::gpui::SharedString::from(s),
+        }
     };
 }
 

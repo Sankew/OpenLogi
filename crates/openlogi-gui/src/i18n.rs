@@ -4,8 +4,8 @@
 //! at compile time by the `rust_i18n::i18n!` macro in `main.rs`. Call sites use
 //! the [`tr!`](crate::tr) helper (or `rust_i18n::t!`) with the **English string
 //! as the key** — a missing entry still falls back to that English text. Each
-//! entry lists all shipped locales (`en` / `zh-CN` / `zh-HK`), with the `en:`
-//! column mirroring the key as the canonical source.
+//! entry lists all shipped locales (`en` / `ja` / `zh-CN` / `zh-HK`), with the
+//! `en:` column mirroring the key as the canonical source.
 //!
 //! The current locale is a process-global atomic inside `rust_i18n`. Setting it
 //! re-localizes both our own call sites *and* gpui-component's built-in widget
@@ -45,9 +45,11 @@ pub fn resolve(setting: Option<&str>) -> &'static str {
 }
 
 /// Collapse an arbitrary BCP-47 locale onto one of [`SUPPORTED`], or `None`,
-/// by matching its primary subtag. A `zh` tag resolves to Traditional
-/// (`zh-HK`) when any later subtag marks Hant script or a Traditional-using
-/// region (`tw` / `hk` / `mo`), otherwise Simplified (`zh-CN`).
+/// by matching its primary subtag. A `zh` tag is decided by its *first*
+/// script-or-region subtag (script precedes region in BCP-47): `Hant` or a
+/// Traditional-using region (`tw` / `hk` / `mo`) → `zh-HK`; an explicit `Hans`
+/// or no such subtag → `zh-CN`. So `zh-Hans-HK` stays Simplified — the script
+/// tag wins over the region.
 fn match_supported(code: &str) -> Option<&'static str> {
     let lower = code.to_ascii_lowercase();
     let mut subtags = lower.split(['-', '_']);
@@ -55,17 +57,29 @@ fn match_supported(code: &str) -> Option<&'static str> {
         Some("en") => Some("en"),
         Some("ja") => Some("ja"),
         Some("zh") => {
-            let traditional = subtags.any(|t| matches!(t, "hant" | "tw" | "hk" | "mo"));
+            let traditional = matches!(
+                subtags.find(|t| matches!(*t, "hans" | "hant" | "tw" | "hk" | "mo")),
+                Some("hant" | "tw" | "hk" | "mo")
+            );
             Some(if traditional { "zh-HK" } else { "zh-CN" })
         }
         _ => None,
     }
 }
 
+/// Switch the process-global locale to the resolution of `language`
+/// (`None` = follow system). The single resolve→`set_locale` surface shared by
+/// startup ([`apply`]) and the live Settings switch
+/// ([`AppState::set_language`](crate::state::AppState::set_language)), so the
+/// resolution policy can't drift between them.
+pub fn activate(language: Option<&str>) {
+    rust_i18n::set_locale(resolve(language));
+}
+
 /// Apply the configured language to the process-global locale at startup.
 /// Safe to call before any window opens — the locale is a plain atomic.
 pub fn apply(settings: &AppSettings) {
-    rust_i18n::set_locale(resolve(settings.language.as_deref()));
+    activate(settings.language.as_deref());
 }
 
 #[cfg(test)]
@@ -96,11 +110,14 @@ mod tests {
     }
 
     /// End-to-end check that `locales/app.yml` loaded and the gettext-style
-    /// English keys match — a typo'd key would silently fall back to English,
-    /// which this would catch. Sets the process-global locale, so it owns that
-    /// state; no other test reads it.
+    /// English keys match — a typo'd key silently falls back to English, which
+    /// this catches. All locale-dependent assertions live in this one test on
+    /// purpose: `rust_i18n`'s locale is a process-global, so splitting them into
+    /// separate `#[test]`s would race under the parallel harness.
     #[test]
-    fn locale_file_resolves_known_keys() {
+    fn locale_file_resolves_keys() {
+        use openlogi_core::binding::{Action, ButtonId, GestureDirection};
+
         // The accessibility blurb is the longest, most typo-prone key.
         const BLURB: &str = "OpenLogi captures mouse buttons (Back / Forward / gesture button) through the system Accessibility permission and runs the actions you bind. Features that talk to the device directly — DPI, SmartShift — are unaffected.";
 
@@ -108,16 +125,36 @@ mod tests {
         assert_eq!(rust_i18n::t!("Settings"), "设置"); // GUI chrome
         assert_eq!(rust_i18n::t!("Left Click"), "左键单击"); // core enum label
         assert_eq!(rust_i18n::t!("Bind %{name}", name => "X"), "绑定 X"); // interpolation
-
-        rust_i18n::set_locale("ja");
-        assert_eq!(rust_i18n::t!("Settings"), "設定");
-        assert_eq!(rust_i18n::t!("Left Click"), "左クリック");
-        // Resolves to *something other than* the English source ⇒ the key hit.
         assert_ne!(
             rust_i18n::t!(BLURB),
             BLURB,
             "blurb key missing from app.yml"
         );
+
+        // Exhaustive: every non-parameterized device/action label has a `zh-CN`
+        // entry. `DPI` is a universal initialism, identical across locales — it
+        // has no entry, so it's the one exception to "differs from English".
+        // Parameterized `Action`s (`SetDpiPreset`, `CustomShortcut`) are
+        // English-only by design and absent from the catalog, so they're skipped.
+        let covered = |label: &str| label == "DPI" || rust_i18n::t!(label) != label;
+        for b in ButtonId::ALL {
+            assert!(covered(b.label()), "no zh-CN for ButtonId::{b:?}");
+        }
+        for d in GestureDirection::ALL {
+            assert!(covered(d.label()), "no zh-CN for GestureDirection::{d:?}");
+        }
+        for a in Action::catalog() {
+            assert!(covered(&a.label()), "no zh-CN for Action::{a:?}");
+            assert!(
+                covered(a.category().label()),
+                "no zh-CN for {:?}",
+                a.category()
+            );
+        }
+
+        rust_i18n::set_locale("ja");
+        assert_eq!(rust_i18n::t!("Settings"), "設定");
+        assert_eq!(rust_i18n::t!("Left Click"), "左クリック");
 
         // The explicit `en:` column resolves back to the English source.
         rust_i18n::set_locale("en");

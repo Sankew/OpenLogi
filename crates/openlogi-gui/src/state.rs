@@ -363,9 +363,7 @@ impl AppState {
         if let Err(e) = self.config.save_atomic() {
             warn!(error = %e, "could not persist language setting");
         }
-        rust_i18n::set_locale(crate::i18n::resolve(
-            self.config.app_settings.language.as_deref(),
-        ));
+        crate::i18n::activate(self.config.app_settings.language.as_deref());
     }
 
     /// Update a single binding in memory, on disk, and in the shared hook
