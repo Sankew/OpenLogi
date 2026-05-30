@@ -342,6 +342,32 @@ impl AppState {
         }
     }
 
+    /// The stored UI-language preference: `Some(code)` for an explicit choice,
+    /// `None` for "follow system". Distinct from the *active* locale that
+    /// `None` resolves to at startup, so the Settings picker can show "Follow
+    /// system" as the selected option.
+    #[must_use]
+    pub fn language(&self) -> Option<&str> {
+        self.config.app_settings.language.as_deref()
+    }
+
+    /// Set the UI language (`None` = follow system), persist it, and switch the
+    /// process-global locale live via [`crate::i18n`]. The caller must refresh
+    /// open windows and rebuild the menu so everything re-renders. No-op when
+    /// unchanged.
+    pub fn set_language(&mut self, language: Option<String>) {
+        if self.config.app_settings.language == language {
+            return;
+        }
+        self.config.app_settings.language = language;
+        if let Err(e) = self.config.save_atomic() {
+            warn!(error = %e, "could not persist language setting");
+        }
+        rust_i18n::set_locale(crate::i18n::resolve(
+            self.config.app_settings.language.as_deref(),
+        ));
+    }
+
     /// Update a single binding in memory, on disk, and in the shared hook
     /// map for the currently selected device.
     ///

@@ -71,6 +71,12 @@ pub struct AppSettings {
     /// available — no automatic download.
     #[serde(default)]
     pub check_for_updates: bool,
+    /// UI language as a BCP-47-ish locale code matching the GUI's bundled
+    /// locales (`"en"`, `"zh-CN"`, `"zh-HK"`). `None` means "follow the
+    /// system locale", which the GUI resolves at startup. Stored here so a
+    /// user's explicit choice survives restarts regardless of the OS setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 impl AppSettings {

@@ -4,6 +4,18 @@
 //! the main thread, so we can't move it onto a tokio runtime). Live polling
 //! lands when there's something to react to.
 
+/// Translate `key` (an English msgid) to the current locale and wrap it as a
+/// [`gpui::SharedString`], ready for `.child(...)` / `.label(...)` / menu items.
+/// Forwards `rust_i18n` interpolation, e.g. `tr!("Bind %{name}", name => x)`.
+///
+/// Defined before the `mod` declarations so every submodule can use it without
+/// an import (textual macro scope). Pairs with the `rust_i18n::i18n!` below.
+macro_rules! tr {
+    ($($args:tt)*) => {
+        ::gpui::SharedString::from(::rust_i18n::t!($($args)*).into_owned())
+    };
+}
+
 mod app;
 mod app_menu;
 mod asset;
@@ -11,12 +23,18 @@ mod components;
 mod data;
 mod hardware;
 mod hook_runtime;
+mod i18n;
 mod mouse_model;
 mod platform;
 mod state;
 mod theme;
 mod watchers;
 mod windows;
+
+// Loads `crates/openlogi-gui/locales/*.yml` at compile time and generates the
+// `t!`/`tr!` lookup backend for this crate. `fallback = "en"` matches the codes
+// gpui-component ships, so the framework's own widgets localize alongside ours.
+rust_i18n::i18n!("locales", fallback = "en");
 
 use std::sync::{Arc, RwLock};
 
@@ -59,6 +77,10 @@ fn main() -> Result<()> {
     let (hook_bindings, gesture_bindings, dpi_cycle, initial_config) =
         load_config_and_bindings(&inventories);
     let hook_arcs = (Arc::clone(&hook_bindings), Arc::clone(&dpi_cycle));
+
+    // Resolve the UI locale before any menu or window is built so the first
+    // frame already renders in the right language.
+    i18n::apply(&initial_config.app_settings);
 
     // Gesture capture runs independently of the CGEventTap hook (it needs no
     // Accessibility permission), so start it up front for the active device.

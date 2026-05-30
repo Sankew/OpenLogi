@@ -88,18 +88,19 @@ impl AppView {
                 div()
                     .text_xl()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("需要「辅助功能」权限"),
+                    .child(tr!("Accessibility permission required")),
             )
             .child(
                 div()
                     .max_w(px(440.))
                     .text_sm()
                     .text_color(pal.text_muted)
-                    .child(
-                        "OpenLogi 通过系统的「辅助功能」权限捕获鼠标按键(后退 / 前进 / \
-                         手势按钮)并执行你绑定的操作。DPI、SmartShift 等直接与设备通信的 \
-                         功能不受影响。",
-                    ),
+                    .child(tr!(
+                        "OpenLogi captures mouse buttons (Back / Forward / gesture button) \
+                         through the system Accessibility permission and runs the actions you \
+                         bind. Features that talk to the device directly — DPI, SmartShift — \
+                         are unaffected."
+                    )),
             )
             .child(
                 div()
@@ -111,15 +112,12 @@ impl AppView {
                     .text_color(rgb(0x00ff_ffff))
                     .font_weight(FontWeight::MEDIUM)
                     .cursor_pointer()
-                    .child("打开系统设置授权")
+                    .child(tr!("Open System Settings to grant access"))
                     .on_click(|_, _, _| open_accessibility_settings()),
             )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(pal.text_muted)
-                    .child("授权后会自动生效,无需重启。"),
-            )
+            .child(div().text_xs().text_color(pal.text_muted).child(tr!(
+                "Takes effect automatically once granted — no restart needed."
+            )))
             .child(
                 div()
                     .id("skip-accessibility")
@@ -127,7 +125,7 @@ impl AppView {
                     .text_color(pal.text_muted)
                     .cursor_pointer()
                     .hover(|s| s.text_color(pal.text_primary))
-                    .child("稍后再说(仅使用 DPI 等功能)")
+                    .child(tr!("Not now (use DPI and other features only)"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.accessibility_dismissed = true;
                         cx.notify();
@@ -222,7 +220,7 @@ fn footer(pal: Palette, granted: bool) -> impl IntoElement {
                         .id("footer-settings")
                         .cursor_pointer()
                         .hover(|s| s.text_color(pal.text_primary))
-                        .child("Settings")
+                        .child(tr!("Settings"))
                         .on_click(|_, _, cx| crate::windows::settings::open(cx)),
                 )
                 .child(div().child("·"))
@@ -231,7 +229,7 @@ fn footer(pal: Palette, granted: bool) -> impl IntoElement {
                         .id("footer-about")
                         .cursor_pointer()
                         .hover(|s| s.text_color(pal.text_primary))
-                        .child("About")
+                        .child(tr!("About"))
                         .on_click(|_, _, cx| crate::windows::about::open(cx)),
                 ),
         )
@@ -256,7 +254,7 @@ fn accessibility_status(pal: Palette, granted: bool) -> AnyElement {
             .text_xs()
             .text_color(pal.text_muted)
             .child(dot(theme::STATUS_CONNECTED))
-            .child(div().child("辅助功能已授权"))
+            .child(div().child(tr!("Accessibility granted")))
             .into_any_element()
     } else {
         h_flex()
@@ -267,7 +265,7 @@ fn accessibility_status(pal: Palette, granted: bool) -> AnyElement {
             .text_color(pal.text_primary)
             .cursor_pointer()
             .child(dot(theme::STATUS_CONNECTING))
-            .child(div().child("辅助功能未授权 · 点击授权"))
+            .child(div().child(tr!("Accessibility not granted · click to grant")))
             .on_click(|_, _, _| open_accessibility_settings())
             .into_any_element()
     }

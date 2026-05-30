@@ -4281,6 +4281,8 @@ dependencies = [
  "openlogi-core",
  "openlogi-hid",
  "openlogi-hook",
+ "rust-i18n",
+ "sys-locale",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

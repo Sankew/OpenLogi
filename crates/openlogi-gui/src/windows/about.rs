@@ -80,7 +80,10 @@ impl Render for AboutView {
                     .text_sm()
                     .text_center()
                     .text_color(pal.text_muted)
-                    .child("开源的 Logitech 鼠标配置工具 —— DPI、SmartShift、按键绑定与手势。"),
+                    .child(tr!(
+                        "Open-source Logitech mouse configuration — DPI, SmartShift, button \
+                         bindings, and gestures."
+                    )),
             )
             .child(
                 h_flex()

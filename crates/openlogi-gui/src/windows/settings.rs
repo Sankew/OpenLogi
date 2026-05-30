@@ -7,8 +7,9 @@
 //! set grows enough to warrant pages, this can migrate to that widget.
 
 use gpui::{
-    App, BorrowAppContext as _, Context, FontWeight, IntoElement, ParentElement as _, Render, Size,
-    Styled as _, Subscription, Window, div, px,
+    App, BorrowAppContext as _, Context, FontWeight, InteractiveElement, IntoElement,
+    ParentElement as _, Render, SharedString, Size, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window, div, px, rgb,
 };
 use gpui_component::{group_box::GroupBox, h_flex, switch::Switch, v_flex};
 
@@ -50,10 +51,12 @@ pub fn open(cx: &mut App) {
 impl Render for SettingsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let pal = theme::palette(cx);
-        let (launch, updates) = cx.try_global::<AppState>().map_or((false, false), |s| {
-            let a = s.app_settings();
-            (a.launch_at_login, a.check_for_updates)
-        });
+        let (launch, updates, language) =
+            cx.try_global::<AppState>()
+                .map_or((false, false, None), |s| {
+                    let a = s.app_settings();
+                    (a.launch_at_login, a.check_for_updates, a.language.clone())
+                });
 
         v_flex()
             .size_full()
@@ -65,11 +68,11 @@ impl Render for SettingsView {
                 div()
                     .text_lg()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("Settings"),
+                    .child(tr!("Settings")),
             )
             .child(
                 GroupBox::new()
-                    .title("通用")
+                    .title(tr!("General"))
                     .child(setting_row(
                         Switch::new("launch-at-login")
                             .checked(launch)
@@ -80,8 +83,8 @@ impl Render for SettingsView {
                                 });
                                 cx.notify();
                             })),
-                        "开机自启",
-                        "登录 macOS 时自动启动 OpenLogi。",
+                        tr!("Launch at login"),
+                        tr!("Automatically start OpenLogi when you log in to macOS."),
                         pal,
                     ))
                     .child(setting_row(
@@ -94,10 +97,15 @@ impl Render for SettingsView {
                                 });
                                 cx.notify();
                             })),
-                        "检查更新",
-                        "每次启动检查一次新版本(仅查询,不自动下载)。",
+                        tr!("Check for updates"),
+                        tr!("Check once per launch for a new version (query only — no automatic download)."),
                         pal,
                     )),
+            )
+            .child(
+                GroupBox::new()
+                    .title(tr!("Language"))
+                    .child(language_row(language.as_deref(), pal, cx)),
             )
     }
 }
@@ -105,8 +113,8 @@ impl Render for SettingsView {
 /// One row: title + muted description on the left, the control on the right.
 fn setting_row(
     control: Switch,
-    title: &'static str,
-    description: &'static str,
+    title: impl Into<SharedString>,
+    description: impl Into<SharedString>,
     pal: Palette,
 ) -> impl IntoElement {
     h_flex()
@@ -115,12 +123,82 @@ fn setting_row(
         .justify_between()
         .gap_4()
         .child(
-            v_flex().gap_1().child(div().text_sm().child(title)).child(
-                div()
-                    .text_xs()
-                    .text_color(pal.text_muted)
-                    .child(description),
-            ),
+            v_flex()
+                .gap_1()
+                .child(div().text_sm().child(title.into()))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(pal.text_muted)
+                        .child(description.into()),
+                ),
         )
         .child(control)
+}
+
+/// The language picker: a muted hint on the left, selectable locale chips on
+/// the right. The leading "Follow system" chip clears the stored preference
+/// (`None`); the rest pin an explicit locale from [`crate::i18n::SUPPORTED`].
+/// Selecting one switches the locale live, then repaints every window and the
+/// menu bar so the whole UI re-renders without a restart.
+fn language_row(
+    current: Option<&str>,
+    pal: Palette,
+    cx: &mut Context<SettingsView>,
+) -> impl IntoElement {
+    let mut options: Vec<(SharedString, Option<String>)> = vec![(tr!("Follow system"), None)];
+    options.extend(
+        crate::i18n::SUPPORTED
+            .iter()
+            .map(|(code, name)| (SharedString::from(*name), Some((*code).to_string()))),
+    );
+
+    let chips: Vec<_> = options
+        .into_iter()
+        .enumerate()
+        .map(|(idx, (label, lang))| {
+            let active = current == lang.as_deref();
+            div()
+                .id(("lang-chip", idx))
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .border_1()
+                .border_color(if active {
+                    rgb(theme::ACCENT_BLUE).into()
+                } else {
+                    pal.border
+                })
+                .text_xs()
+                .text_color(if active {
+                    rgb(theme::ACCENT_BLUE).into()
+                } else {
+                    pal.text_primary
+                })
+                .cursor_pointer()
+                .hover(|s| s.bg(pal.surface_hover))
+                .child(label)
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    cx.update_global::<AppState, _>(|s, _| s.set_language(lang.clone()));
+                    // `t!` reads the locale at render time, so a repaint is what
+                    // actually applies the switch; the menu bar is rebuilt
+                    // separately since it isn't part of any window's view tree.
+                    cx.refresh_windows();
+                    crate::app_menu::rebuild(cx);
+                }))
+        })
+        .collect();
+
+    h_flex()
+        .w_full()
+        .items_center()
+        .justify_between()
+        .gap_4()
+        .child(
+            div()
+                .text_xs()
+                .text_color(pal.text_muted)
+                .child(tr!("Choose the interface language.")),
+        )
+        .child(h_flex().gap_2().flex_wrap().children(chips))
 }

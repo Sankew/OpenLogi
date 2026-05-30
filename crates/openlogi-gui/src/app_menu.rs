@@ -58,15 +58,23 @@ pub fn install(cx: &mut App) {
     cx.set_menus(menus());
 }
 
+/// Re-publish the menu bar with the current locale's titles. Called after a
+/// live language switch — unlike [`install`] it only restamps the menu strings,
+/// leaving the already-registered action handlers and key bindings untouched.
+pub fn rebuild(cx: &mut App) {
+    cx.set_menus(menus());
+}
+
 fn menus() -> Vec<Menu> {
     vec![
         Menu {
+            // The app menu's name is the product name, not a translatable string.
             name: "OpenLogi".into(),
             disabled: false,
             items: vec![
-                MenuItem::action("About OpenLogi", OpenAbout),
+                MenuItem::action(tr!("About OpenLogi"), OpenAbout),
                 MenuItem::separator(),
-                MenuItem::action("Settings…", OpenSettings),
+                MenuItem::action(tr!("Settings…"), OpenSettings),
                 #[cfg(target_os = "macos")]
                 MenuItem::separator(),
                 #[cfg(target_os = "macos")]
@@ -74,22 +82,22 @@ fn menus() -> Vec<Menu> {
                 #[cfg(target_os = "macos")]
                 MenuItem::separator(),
                 #[cfg(target_os = "macos")]
-                MenuItem::action("Hide OpenLogi", Hide),
+                MenuItem::action(tr!("Hide OpenLogi"), Hide),
                 #[cfg(target_os = "macos")]
-                MenuItem::action("Hide Others", HideOthers),
+                MenuItem::action(tr!("Hide Others"), HideOthers),
                 #[cfg(target_os = "macos")]
-                MenuItem::action("Show All", ShowAll),
+                MenuItem::action(tr!("Show All"), ShowAll),
                 #[cfg(target_os = "macos")]
                 MenuItem::separator(),
-                MenuItem::action("Quit OpenLogi", Quit),
+                MenuItem::action(tr!("Quit OpenLogi"), Quit),
             ],
         },
         Menu {
-            name: "Window".into(),
+            name: tr!("Window"),
             disabled: false,
             items: vec![
-                MenuItem::action("Minimize", Minimize),
-                MenuItem::action("Zoom", Zoom),
+                MenuItem::action(tr!("Minimize"), Minimize),
+                MenuItem::action(tr!("Zoom"), Zoom),
             ],
         },
     ]

@@ -63,9 +63,10 @@ pub fn action_picker<T: 'static>(
     });
 
     let pal = theme::palette(cx);
+    let button = rust_i18n::t!(btn.label());
     v_flex()
         .min_w(px(POPOVER_W))
-        .child(title(format!("Bind {}", btn.label()), pal))
+        .child(title(tr!("Bind %{name}", name => button), pal))
         .child(divider(pal))
         .child(scroll_list(
             "picker-scroll",
@@ -117,7 +118,7 @@ fn gesture_directions_list<T: 'static>(
                         .gap_2()
                         // Fixed-width glyph so the direction names line up.
                         .child(div().w(px(14.)).text_color(pal.text_muted).child(dir.glyph()))
-                        .child(div().text_color(pal.text_primary).child(dir.label())),
+                        .child(div().text_color(pal.text_primary).child(tr!(dir.label()))),
                 )
                 .child(
                     h_flex()
@@ -125,7 +126,7 @@ fn gesture_directions_list<T: 'static>(
                         .gap_1p5()
                         .text_xs()
                         .text_color(pal.text_muted)
-                        .child(action.label())
+                        .child(tr!(action.label()))
                         .child("›"),
                 )
                 .on_click(move |_event, _window, cx| {
@@ -138,7 +139,7 @@ fn gesture_directions_list<T: 'static>(
 
     v_flex()
         .min_w(px(POPOVER_W))
-        .child(title("Gesture Button", pal))
+        .child(title(tr!("Gesture Button"), pal))
         .child(divider(pal))
         .children(rows)
         .into_any_element()
@@ -168,6 +169,7 @@ fn gesture_action_picker<T: 'static>(
 
     let pal = theme::palette(cx);
     let observer_back = observer.clone();
+    let dir_name = rust_i18n::t!(direction.label());
     let back = h_flex()
         .id("gesture-back")
         .w_full()
@@ -180,7 +182,7 @@ fn gesture_action_picker<T: 'static>(
         .text_color(pal.text_muted)
         .hover(|s| s.bg(pal.surface_hover).text_color(pal.text_primary))
         .child("‹")
-        .child(format!("Gesture {}", direction.label()))
+        .child(tr!("Gesture %{name}", name => dir_name))
         .on_click(move |_event, _window, cx| {
             cx.update_global::<AppState, _>(|state, _| state.gesture_edit = None);
             observer_back.update(cx, |_, cx| cx.notify());
@@ -231,10 +233,11 @@ fn action_rows(
     let mut idx = 0usize;
     let mut children: Vec<AnyElement> = Vec::new();
     for (category, actions) in grouped_catalog() {
-        children.push(section_header(category.label(), pal));
+        let category_label = rust_i18n::t!(category.label());
+        children.push(section_header(&category_label, pal));
         for action in actions {
             let selected = current == Some(&action);
-            let label = action.label();
+            let label = tr!(action.label());
             let on_pick = on_pick.clone();
             let row_id = idx;
             idx += 1;

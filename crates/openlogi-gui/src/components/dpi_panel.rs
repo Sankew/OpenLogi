@@ -131,7 +131,12 @@ impl Render for DpiPanel {
             .child(
                 v_flex()
                     .gap_2()
-                    .child(div().text_xs().text_color(pal.text_muted).child("PRESETS"))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(pal.text_muted)
+                            .child(tr!("PRESETS")),
+                    )
                     .child(
                         h_flex()
                             .gap_2()
@@ -217,7 +222,12 @@ fn add_preset_chip(pal: Palette) -> AnyElement {
         .border_color(pal.border)
         .bg(pal.surface)
         .hover(|s| s.bg(pal.surface_hover))
-        .child(div().text_sm().text_color(pal.text_muted).child("+ Add"))
+        .child(
+            div()
+                .text_sm()
+                .text_color(pal.text_muted)
+                .child(tr!("+ Add")),
+        )
         .on_click(|_event, _window, cx| {
             // Append the current DPI to the active device's preset list.
             // Duplicates are allowed — the user might want the same value
