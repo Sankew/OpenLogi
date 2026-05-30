@@ -782,9 +782,9 @@ mod macos {
 ///
 /// Thumbwheel / GestureButton defaults match what Logi Options+ ships for
 /// MX-line devices: thumb wheel click → App Exposé, gesture button →
-/// Mission Control. They become functional once the hook layer captures
-/// these inputs (P1.5 follow-up); the bindings persist meanwhile so the
-/// user only configures once.
+/// Mission Control. The thumb wheel isn't captured yet; the gesture button is
+/// (per-direction, see [`default_gesture_binding`]). The bindings persist
+/// regardless so the user only configures once.
 ///
 /// `GestureButton`'s entry here is the legacy single-binding placeholder;
 /// the per-direction sub-bindings live in [`default_gesture_binding`] and
@@ -803,10 +803,9 @@ pub fn default_binding(button: ButtonId) -> Action {
     }
 }
 
-/// Per-direction defaults for the gesture button. The hardware integration
-/// (HID++ feature 0x6500 GestureEnhanced read path + hook dispatch) is a
-/// separate follow-up — these defaults exist so the picker has something
-/// sensible to show on first run.
+/// Per-direction defaults for the gesture button. These are captured live over
+/// HID++ `0x1b04` (raw-XY diversion) and dispatched like any other binding; the
+/// defaults give the picker something sensible to show on first run.
 #[must_use]
 pub fn default_gesture_binding(direction: GestureDirection) -> Action {
     match direction {
