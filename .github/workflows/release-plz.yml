@@ -45,12 +45,26 @@ jobs:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
           GITHUB_APP_ID: ${{ secrets.OP_GITHUB_APP_ITEM }}/GITHUB_APP_ID
           GITHUB_APP_PRIVATE_KEY: ${{ secrets.OP_GITHUB_APP_ITEM }}/GITHUB_APP_PRIVATE_KEY
+      # App key is stored base64-encoded in 1Password (raw PEM newlines get
+      # mangled to spaces on paste); decode it (base64 ignores whitespace).
+      - name: Decode GitHub App private key
+        id: app_key
+        env:
+          APP_KEY_B64: ${{ steps.load_secrets.outputs.GITHUB_APP_PRIVATE_KEY }}
+        run: |
+          key="$(printf '%s' "$APP_KEY_B64" | tr -d '[:space:]' | base64 -d)"
+          {
+            echo 'pem<<__PEM__'
+            printf '%s\n' "$key"
+            echo '__PEM__'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Mint GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ steps.load_secrets.outputs.GITHUB_APP_ID }}
-          private-key: ${{ steps.load_secrets.outputs.GITHUB_APP_PRIVATE_KEY }}
+          private-key: ${{ steps.app_key.outputs.pem }}
       - name: Run release-plz (release-pr)
         uses: release-plz/action@v0.5
         with:
@@ -89,12 +103,26 @@ jobs:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
           GITHUB_APP_ID: ${{ secrets.OP_GITHUB_APP_ITEM }}/GITHUB_APP_ID
           GITHUB_APP_PRIVATE_KEY: ${{ secrets.OP_GITHUB_APP_ITEM }}/GITHUB_APP_PRIVATE_KEY
+      # App key is stored base64-encoded in 1Password (raw PEM newlines get
+      # mangled to spaces on paste); decode it (base64 ignores whitespace).
+      - name: Decode GitHub App private key
+        id: app_key
+        env:
+          APP_KEY_B64: ${{ steps.load_secrets.outputs.GITHUB_APP_PRIVATE_KEY }}
+        run: |
+          key="$(printf '%s' "$APP_KEY_B64" | tr -d '[:space:]' | base64 -d)"
+          {
+            echo 'pem<<__PEM__'
+            printf '%s\n' "$key"
+            echo '__PEM__'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Mint GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ steps.load_secrets.outputs.GITHUB_APP_ID }}
-          private-key: ${{ steps.load_secrets.outputs.GITHUB_APP_PRIVATE_KEY }}
+          private-key: ${{ steps.app_key.outputs.pem }}
       - name: Run release-plz (release)
         uses: release-plz/action@v0.5
         with:
