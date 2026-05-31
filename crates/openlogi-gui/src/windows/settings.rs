@@ -199,7 +199,8 @@ fn language_row(
                     // to re-localize the whole menu rather than writing from here.
                     cx.refresh_windows();
                     crate::app_menu::rebuild(cx);
-                    crate::platform::menubar::request_refresh();
+                    #[cfg(target_os = "macos")]
+                    crate::platform::tray::request_refresh();
                 }))
         })
         .collect();
