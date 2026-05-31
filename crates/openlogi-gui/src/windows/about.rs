@@ -6,11 +6,11 @@
 //! `img()` resolves it the same inside a packaged `.app` as in a dev build.
 
 use gpui::{
-    App, AppContext as _, Context, Entity, FontWeight, IntoElement, ParentElement as _, Render,
-    Size, Styled as _, Subscription, Window, div, img, px,
+    App, Context, Entity, FontWeight, IntoElement, ParentElement as _, Render, Size, Styled as _,
+    Subscription, Window, div, img, px,
 };
 use gpui_component::{IconName, button::Button, h_flex, v_flex};
-use gpui_updater::{EngineConfig, GitHubSource, UpdateStatus, Updater, Version};
+use gpui_updater::{UpdateStatus, Updater};
 
 use crate::theme;
 use crate::windows::{self, AuxWindow};
@@ -29,14 +29,13 @@ pub struct AboutView {
 
 impl AboutView {
     fn new(cx: &mut Context<Self>) -> Self {
-        // One updater per About window. No background polling — the user drives
-        // it with the button below, matching OpenLogi's opt-in update posture.
-        let updater = cx.new(|cx| {
-            let source = GitHubSource::new("AprilNEA", "OpenLogi").with_checksums("SHA256SUMS");
-            let version =
-                Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or_else(|_| Version::new(0, 0, 0));
-            Updater::new(source, EngineConfig::new(version), cx)
-        });
+        // Reuse the app-wide shared updater installed at launch, so a launch-time
+        // check result is already visible here. Fall back to a fresh one if it
+        // somehow wasn't installed.
+        let updater = match crate::platform::updater::shared(cx) {
+            Some(updater) => updater,
+            None => crate::platform::updater::new_entity(cx),
+        };
         let updater_obs = cx.observe(&updater, |_, _, cx| cx.notify());
         Self {
             appearance_obs: None,
@@ -60,7 +59,7 @@ impl AboutView {
                         .outline()
                         .label("Download & Install")
                         .on_click(move |_, _, cx| {
-                            u.update(cx, |u, cx| u.download_and_install(cx));
+                            u.update(cx, Updater::download_and_install);
                         }),
                 )
             }
@@ -95,7 +94,7 @@ impl AboutView {
                 .outline()
                 .label("Check for Updates")
                 .on_click(move |_, _, cx| {
-                    u.update(cx, |u, cx| u.check(cx));
+                    u.update(cx, Updater::check);
                 })
         };
 

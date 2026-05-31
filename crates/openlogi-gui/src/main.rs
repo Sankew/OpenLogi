@@ -134,6 +134,11 @@ fn main() -> Result<()> {
                 Hook::prompt_accessibility();
             }
 
+            // Publish the shared updater and, if the user opted in, run one
+            // check on launch. Done before `initial_config` is moved into the
+            // window-opening task below.
+            platform::updater::install(cx, &initial_config.app_settings);
+
             cx.spawn(async move |cx| {
             let options = cx.update(main_window_options);
 
@@ -224,7 +229,6 @@ fn reconcile_early_config() {
     let early_config = Config::load_or_default().ok();
     if let Some(cfg) = early_config.as_ref() {
         platform::launch_agent::reconcile(cfg.app_settings.launch_at_login);
-        platform::updater::maybe_check(&cfg.app_settings);
     }
 }
 
