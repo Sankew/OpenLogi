@@ -6,8 +6,8 @@
 //! `img()` resolves it the same inside a packaged `.app` as in a dev build.
 
 use gpui::{
-    App, Context, Entity, FontWeight, IntoElement, ParentElement as _, Render, Size, Styled as _,
-    Subscription, Window, div, img, px,
+    App, Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement as _, Render,
+    Size, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, img, px,
 };
 use gpui_component::{IconName, button::Button, h_flex, v_flex};
 use gpui_updater::{UpdateStatus, Updater};
@@ -17,6 +17,11 @@ use crate::windows::{self, AuxWindow};
 
 const REPO_URL: &str = "https://github.com/AprilNEA/OpenLogi";
 const RELEASES_URL: &str = "https://github.com/AprilNEA/OpenLogi/releases/latest";
+/// Release page for this exact build, opened by clicking the version label.
+const RELEASE_TAG_URL: &str = concat!(
+    "https://github.com/AprilNEA/OpenLogi/releases/tag/v",
+    env!("CARGO_PKG_VERSION")
+);
 
 /// Standalone About window root view.
 pub struct AboutView {
@@ -151,9 +156,13 @@ impl Render for AboutView {
             )
             .child(
                 div()
+                    .id("about-version")
                     .text_sm()
                     .text_color(pal.text_muted)
-                    .child(concat!("v", env!("CARGO_PKG_VERSION"))),
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(pal.text_primary))
+                    .child(concat!("v", env!("CARGO_PKG_VERSION")))
+                    .on_click(|_, _, cx| cx.open_url(RELEASE_TAG_URL)),
             )
             .child(
                 div()

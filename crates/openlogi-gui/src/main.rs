@@ -171,6 +171,17 @@ fn main() -> Result<()> {
             })
             .expect("opening the main window should not fail");
 
+            // First launch only: offer to opt in to the update check, since it
+            // defaults to off. Marked seen either way so it shows just once.
+            cx.update(|cx| {
+                let show = cx
+                    .try_global::<AppState>()
+                    .is_some_and(|s| !s.app_settings().update_prompt_seen);
+                if show {
+                    windows::update_consent::open(cx);
+                }
+            });
+
             let mut hook_handle = None;
             loop {
                 tokio::select! {
