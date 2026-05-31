@@ -33,6 +33,7 @@ thiserror.workspace = true
 ureq.workspace = true
 rust-i18n = "4"
 sys-locale = "0.3.2"
+gpui-updater = { version = "0.0.1", path = "../../../gpui-updater", features = ["gpui"] }
 
 [lints]
 workspace = true

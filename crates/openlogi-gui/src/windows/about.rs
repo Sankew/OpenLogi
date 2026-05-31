@@ -1,15 +1,16 @@
 //! The About window — a small standalone OS window (menu / footer link)
-//! showing the app logo, wordmark, version, a one-line description, and
-//! outbound links.
+//! showing the app logo, wordmark, version, a one-line description, outbound
+//! links, and a manual "Check for Updates" control backed by [`gpui_updater`].
 //!
 //! The logo is the embedded `openlogi.png` served by [`crate::app_assets`], so
 //! `img()` resolves it the same inside a packaged `.app` as in a dev build.
 
 use gpui::{
-    App, Context, FontWeight, IntoElement, ParentElement as _, Render, Size, Styled as _,
-    Subscription, Window, div, img, px,
+    App, AppContext as _, Context, Entity, FontWeight, IntoElement, ParentElement as _, Render,
+    Size, Styled as _, Subscription, Window, div, img, px,
 };
 use gpui_component::{IconName, button::Button, h_flex, v_flex};
+use gpui_updater::{EngineConfig, GitHubSource, UpdateStatus, Updater, Version};
 
 use crate::theme;
 use crate::windows::{self, AuxWindow};
@@ -21,13 +22,95 @@ const RELEASES_URL: &str = "https://github.com/AprilNEA/OpenLogi/releases/latest
 pub struct AboutView {
     #[allow(dead_code, reason = "held to keep the appearance observer alive")]
     appearance_obs: Option<Subscription>,
+    updater: Entity<Updater>,
+    #[allow(dead_code, reason = "held to keep the updater observation alive")]
+    updater_obs: Subscription,
 }
 
 impl AboutView {
-    fn new(_: &mut Context<Self>) -> Self {
+    fn new(cx: &mut Context<Self>) -> Self {
+        // One updater per About window. No background polling — the user drives
+        // it with the button below, matching OpenLogi's opt-in update posture.
+        let updater = cx.new(|cx| {
+            let source = GitHubSource::new("AprilNEA", "OpenLogi").with_checksums("SHA256SUMS");
+            let version =
+                Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or_else(|_| Version::new(0, 0, 0));
+            Updater::new(source, EngineConfig::new(version), cx)
+        });
+        let updater_obs = cx.observe(&updater, |_, _, cx| cx.notify());
         Self {
             appearance_obs: None,
+            updater,
+            updater_obs,
         }
+    }
+
+    /// The "Check for Updates" control plus a one-line status message and a
+    /// contextual action (install when available, restart when staged).
+    fn update_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let pal = theme::palette(cx);
+        let status = self.updater.read(cx).status().clone();
+        let updater = self.updater.clone();
+
+        let action = match &status {
+            UpdateStatus::Available(_) => {
+                let u = updater.clone();
+                Some(
+                    Button::new("update-install")
+                        .outline()
+                        .label("Download & Install")
+                        .on_click(move |_, _, cx| {
+                            u.update(cx, |u, cx| u.download_and_install(cx));
+                        }),
+                )
+            }
+            UpdateStatus::Staged(_) => {
+                let u = updater.clone();
+                Some(
+                    Button::new("update-restart")
+                        .outline()
+                        .label("Restart to Update")
+                        .on_click(move |_, _, cx| {
+                            u.update(cx, |u, cx| u.restart(cx));
+                        }),
+                )
+            }
+            _ => None,
+        };
+
+        let message = match &status {
+            UpdateStatus::Idle => None,
+            UpdateStatus::Checking => Some("Checking for updates…".to_string()),
+            UpdateStatus::UpToDate => Some("You're on the latest version.".to_string()),
+            UpdateStatus::Available(v) => Some(format!("Version {v} is available.")),
+            UpdateStatus::Downloading => Some("Downloading update…".to_string()),
+            UpdateStatus::Installing => Some("Installing…".to_string()),
+            UpdateStatus::Staged(v) => Some(format!("Version {v} is ready.")),
+            UpdateStatus::Errored(e) => Some(format!("Update failed: {e}")),
+        };
+
+        let check = {
+            let u = updater.clone();
+            Button::new("update-check")
+                .outline()
+                .label("Check for Updates")
+                .on_click(move |_, _, cx| {
+                    u.update(cx, |u, cx| u.check(cx));
+                })
+        };
+
+        v_flex()
+            .gap_2()
+            .items_center()
+            .child(h_flex().gap_3().child(check).children(action))
+            .children(message.map(|text| {
+                div()
+                    .max_w(px(280.))
+                    .text_xs()
+                    .text_center()
+                    .text_color(pal.text_muted)
+                    .child(text)
+            }))
     }
 }
 
@@ -42,7 +125,7 @@ pub fn open(cx: &mut App) {
     windows::open_or_focus(
         |reg| &mut reg.about,
         "About OpenLogi",
-        Size::new(px(360.), px(420.)),
+        Size::new(px(360.), px(460.)),
         AboutView::new,
         cx,
     );
@@ -103,6 +186,7 @@ impl Render for AboutView {
                             .on_click(|_, _, cx| cx.open_url(RELEASES_URL)),
                     ),
             )
+            .child(self.update_section(cx))
             .child(
                 div()
                     .text_xs()
