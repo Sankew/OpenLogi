@@ -113,6 +113,26 @@ jobs:
             exit 0
           fi
           last_tag=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          # The release job runs in parallel and cuts the `v{version}` tag only
+          # after publishing, so that tag is usually absent from this job's
+          # checkout — never trust the local tag list to decide "did a release
+          # just happen". Read the manifest instead: merging a release PR bumps
+          # the workspace version, so a manifest version ahead of the last tag
+          # means the release already landed (the parallel job is tagging it),
+          # not a stall. Only when the manifest still sits at the last released
+          # tag can leftover release-worthy commits mean a swallowed release-pr.
+          manifest_version=$(awk '
+            /^\[workspace\.package\]/ { in_section = 1; next }
+            /^\[/ { in_section = 0 }
+            in_section && /^version[[:space:]]*=/ {
+              gsub(/.*=[[:space:]]*"|".*/, ""); print; exit
+            }
+          ' Cargo.toml)
+          if [ -n "$last_tag" ] && [ -n "$manifest_version" ] \
+            && [ "v$manifest_version" != "$last_tag" ]; then
+            echo "Workspace version $manifest_version is ahead of $last_tag — a release PR already merged; the release job cuts the tag. Nothing to flag."
+            exit 0
+          fi
           range="${last_tag:+$last_tag..}HEAD"
           worthy=$(git log "$range" --format='%s' \
             | grep -cE '^(feat|fix|perf)(\(.+\))?!?:|^[a-z]+(\(.+\))?!:' || true)
