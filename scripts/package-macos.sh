@@ -36,7 +36,7 @@ fi
 
 echo "==> dmg"
 command -v create-dmg >/dev/null 2>&1 || {
-  echo "error: create-dmg is required (install with: brew install create-dmg)" >&2
+  echo "error: create-dmg not found — run inside the devenv shell (provided by devenv.nix), or: brew install create-dmg" >&2
   exit 1
 }
 

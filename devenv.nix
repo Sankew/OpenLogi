@@ -14,6 +14,7 @@
     cmake
     sccache
     prek
+    create-dmg
   ];
 
   languages.rust = {
