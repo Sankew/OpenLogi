@@ -1802,4 +1802,68 @@ mod tests {
             Action::CycleDpiPresets
         );
     }
+
+    // ── macos_vk_to_linux ────────────────────────────────────────────────────
+
+    #[cfg(target_os = "linux")]
+    mod vk_mapping {
+        use evdev::KeyCode;
+
+        use crate::binding::linux::macos_vk_to_linux;
+
+        #[test]
+        fn common_letters_map_correctly() {
+            assert_eq!(macos_vk_to_linux(0x08), Some(KeyCode::KEY_C)); // kVK_ANSI_C
+            assert_eq!(macos_vk_to_linux(0x09), Some(KeyCode::KEY_V)); // kVK_ANSI_V
+            assert_eq!(macos_vk_to_linux(0x07), Some(KeyCode::KEY_X)); // kVK_ANSI_X
+            assert_eq!(macos_vk_to_linux(0x00), Some(KeyCode::KEY_A)); // kVK_ANSI_A
+            assert_eq!(macos_vk_to_linux(0x06), Some(KeyCode::KEY_Z)); // kVK_ANSI_Z
+            assert_eq!(macos_vk_to_linux(0x0D), Some(KeyCode::KEY_W)); // kVK_ANSI_W
+        }
+
+        #[test]
+        fn digits_map_correctly() {
+            assert_eq!(macos_vk_to_linux(0x12), Some(KeyCode::KEY_1)); // kVK_ANSI_1
+            assert_eq!(macos_vk_to_linux(0x1D), Some(KeyCode::KEY_0)); // kVK_ANSI_0
+        }
+
+        #[test]
+        fn arrow_keys_map_correctly() {
+            assert_eq!(macos_vk_to_linux(0x7B), Some(KeyCode::KEY_LEFT));
+            assert_eq!(macos_vk_to_linux(0x7C), Some(KeyCode::KEY_RIGHT));
+            assert_eq!(macos_vk_to_linux(0x7D), Some(KeyCode::KEY_DOWN));
+            assert_eq!(macos_vk_to_linux(0x7E), Some(KeyCode::KEY_UP));
+        }
+
+        #[test]
+        fn function_keys_map_correctly() {
+            assert_eq!(macos_vk_to_linux(0x7A), Some(KeyCode::KEY_F1)); // kVK_F1
+            assert_eq!(macos_vk_to_linux(0x78), Some(KeyCode::KEY_F2)); // kVK_F2
+            assert_eq!(macos_vk_to_linux(0x76), Some(KeyCode::KEY_F4)); // kVK_F4
+            assert_eq!(macos_vk_to_linux(0x60), Some(KeyCode::KEY_F5)); // kVK_F5
+            assert_eq!(macos_vk_to_linux(0x6F), Some(KeyCode::KEY_F12)); // kVK_F12
+        }
+
+        #[test]
+        fn nav_keys_map_correctly() {
+            assert_eq!(macos_vk_to_linux(0x73), Some(KeyCode::KEY_HOME));
+            assert_eq!(macos_vk_to_linux(0x77), Some(KeyCode::KEY_END));
+            assert_eq!(macos_vk_to_linux(0x74), Some(KeyCode::KEY_PAGEUP));
+            assert_eq!(macos_vk_to_linux(0x79), Some(KeyCode::KEY_PAGEDOWN));
+            assert_eq!(macos_vk_to_linux(0x75), Some(KeyCode::KEY_DELETE));
+        }
+
+        #[test]
+        fn brackets_follow_ansi_layout() {
+            // kVK_ANSI_LeftBracket=0x21 → KEY_LEFTBRACE, RightBracket=0x1E → KEY_RIGHTBRACE
+            assert_eq!(macos_vk_to_linux(0x21), Some(KeyCode::KEY_LEFTBRACE));
+            assert_eq!(macos_vk_to_linux(0x1E), Some(KeyCode::KEY_RIGHTBRACE));
+        }
+
+        #[test]
+        fn unmapped_code_returns_none() {
+            assert_eq!(macos_vk_to_linux(0xFF), None);
+            assert_eq!(macos_vk_to_linux(0x34), None); // gap in the kVK table
+        }
+    }
 }
