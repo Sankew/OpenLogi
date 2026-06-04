@@ -56,12 +56,15 @@ pub(crate) fn start(
 
     let result = (|| -> io::Result<()> {
         for (path, device) in devices {
+            let virtual_device = build_virtual_device(&device)?;
             let (rx, tx) = create_pipe()?;
             let stop_clone = Arc::clone(&stop);
             let cb_clone = Arc::clone(&cb);
             let handle = thread::Builder::new()
                 .name(format!("openlogi-hook:{}", path.display()))
-                .spawn(move || device_thread(path, device, cb_clone, stop_clone, rx))?;
+                .spawn(move || {
+                    device_thread(path, device, virtual_device, cb_clone, stop_clone, rx)
+                })?;
             threads.push(handle);
             stop_pipes.push(tx);
         }
@@ -247,18 +250,11 @@ fn key_to_button(key: KeyCode) -> Option<ButtonId> {
 fn device_thread(
     path: std::path::PathBuf,
     mut device: Device,
+    mut virtual_device: VirtualDevice,
     cb: Arc<dyn Fn(MouseEvent) -> EventDisposition + Send + Sync>,
     stop: Arc<AtomicBool>,
     stop_rx: OwnedFd,
 ) {
-    let mut virtual_device = match build_virtual_device(&device) {
-        Ok(vd) => vd,
-        Err(e) => {
-            warn!("failed to create uinput device for {}: {e}", path.display());
-            return;
-        }
-    };
-
     if let Err(e) = device.grab() {
         warn!(
             "failed to grab {} exclusively: {e} — button events will be duplicated",
@@ -304,8 +300,24 @@ fn device_thread(
                     pending.clear();
                 }
             } else {
-                let disposition = translate(&event, hires_scroll)
-                    .map_or(EventDisposition::PassThrough, |me| cb(me));
+                let disposition = match translate(&event, hires_scroll) {
+                    Some(me) => cb(me),
+                    // Low-res companions (REL_WHEEL/REL_HWHEEL) must be suppressed when hi-res
+                    // is active — passing them through would double the scroll distance.
+                    None if hires_scroll
+                        && matches!(
+                            event.destructure(),
+                            EventSummary::RelativeAxis(
+                                _,
+                                RelativeAxisCode::REL_WHEEL | RelativeAxisCode::REL_HWHEEL,
+                                _
+                            )
+                        ) =>
+                    {
+                        EventDisposition::Suppress
+                    }
+                    None => EventDisposition::PassThrough,
+                };
                 if matches!(disposition, EventDisposition::PassThrough) {
                     pending.push(event);
                 }

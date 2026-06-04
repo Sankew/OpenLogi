@@ -17,14 +17,11 @@
 //! cargo run --example print_events -p openlogi-hook
 //! ```
 
+#![cfg(target_os = "linux")]
+
 use openlogi_hook::{EventDisposition, Hook};
 
 fn main() {
-    if !Hook::has_accessibility() {
-        eprintln!("error: Accessibility permission not granted");
-        std::process::exit(1);
-    }
-
     let hook = match Hook::start(|event| {
         println!("{event:?}");
         EventDisposition::PassThrough
