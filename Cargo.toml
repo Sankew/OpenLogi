@@ -55,6 +55,7 @@ backon = { version = "1.6", default-features = false, features = ["std", "std-bl
 clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 thiserror = "2"
+num_enum = "0.7.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
 core-graphics = { version = "0.25", default-features = false, features = ["link"] }
