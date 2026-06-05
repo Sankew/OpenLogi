@@ -712,6 +712,8 @@ impl Action {
             Action::ScrollDown => linux::scroll(RelativeAxisCode::REL_WHEEL, -3),
             Action::HorizontalScrollLeft => linux::scroll(RelativeAxisCode::REL_HWHEEL, -3),
             Action::HorizontalScrollRight => linux::scroll(RelativeAxisCode::REL_HWHEEL, 3),
+            // ── No-op ─────────────────────────────────────────────────────────
+            Action::None => {}
             // ── Custom shortcut ───────────────────────────────────────────────
             Action::CustomShortcut(combo) => {
                 if combo.key_code == 0 {
