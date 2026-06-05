@@ -37,73 +37,42 @@
 
 use std::time::Duration;
 
+use serde::Deserialize;
+use serde::de::IntoDeserializer;
+
 #[cfg(target_os = "linux")]
 use openlogi_core::binding::action_device_path;
 use openlogi_core::binding::{Action, KeyCombo};
 
 fn parse_action(s: &str) -> Result<Action, String> {
-    Ok(match s {
-        "LeftClick" => Action::LeftClick,
-        "RightClick" => Action::RightClick,
-        "MiddleClick" => Action::MiddleClick,
-        "Copy" => Action::Copy,
-        "Paste" => Action::Paste,
-        "Cut" => Action::Cut,
-        "Undo" => Action::Undo,
-        "Redo" => Action::Redo,
-        "SelectAll" => Action::SelectAll,
-        "Find" => Action::Find,
-        "Save" => Action::Save,
-        "BrowserBack" => Action::BrowserBack,
-        "BrowserForward" => Action::BrowserForward,
-        "NewTab" => Action::NewTab,
-        "CloseTab" => Action::CloseTab,
-        "ReopenTab" => Action::ReopenTab,
-        "NextTab" => Action::NextTab,
-        "PrevTab" => Action::PrevTab,
-        "ReloadPage" => Action::ReloadPage,
-        "MissionControl" => Action::MissionControl,
-        "AppExpose" => Action::AppExpose,
-        "PreviousDesktop" => Action::PreviousDesktop,
-        "NextDesktop" => Action::NextDesktop,
-        "ShowDesktop" => Action::ShowDesktop,
-        "LaunchpadShow" => Action::LaunchpadShow,
-        "LockScreen" => Action::LockScreen,
-        "Screenshot" => Action::Screenshot,
-        "PlayPause" => Action::PlayPause,
-        "NextTrack" => Action::NextTrack,
-        "PrevTrack" => Action::PrevTrack,
-        "VolumeUp" => Action::VolumeUp,
-        "VolumeDown" => Action::VolumeDown,
-        "MuteVolume" => Action::MuteVolume,
-        "CycleDpiPresets" => Action::CycleDpiPresets,
-        "ToggleSmartShift" => Action::ToggleSmartShift,
-        "ScrollUp" => Action::ScrollUp,
-        "ScrollDown" => Action::ScrollDown,
-        "HorizontalScrollLeft" => Action::HorizontalScrollLeft,
-        "HorizontalScrollRight" => Action::HorizontalScrollRight,
-        other if other.starts_with("CustomShortcut:") => {
-            // Format: CustomShortcut:<modifiers>:<key_code>
-            // modifiers is a hex byte (e.g. 0x05 for Ctrl+Shift), key_code is a hex u16.
-            // Example: CustomShortcut:0x04:0x08 → Ctrl+C on macOS layout
-            let parts: Vec<&str> = other.splitn(3, ':').collect();
-            if parts.len() != 3 {
-                return Err(
-                    "CustomShortcut format: CustomShortcut:<mod_hex>:<key_hex> (e.g. CustomShortcut:0x01:0x08)".to_string()
-                );
-            }
-            let modifiers = parse_hex_u8(parts[1])
-                .ok_or_else(|| format!("invalid modifier byte: {}", parts[1]))?;
-            let key_code =
-                parse_hex_u16(parts[2]).ok_or_else(|| format!("invalid key code: {}", parts[2]))?;
-            Action::CustomShortcut(KeyCombo {
-                modifiers,
-                key_code,
-                display: String::new(),
-            })
+    // `CustomShortcut` has its own CLI syntax (serde expects a table for the
+    // tuple variant), so parse it by hand.
+    if let Some(rest) = s.strip_prefix("CustomShortcut:") {
+        // Format: <modifiers>:<key_code> — modifiers is a hex byte (e.g. 0x05
+        // for Ctrl+Shift), key_code a hex u16. Example: 0x04:0x08 → Ctrl+C on
+        // the macOS layout.
+        let parts: Vec<&str> = rest.splitn(2, ':').collect();
+        if parts.len() != 2 {
+            return Err(
+                "CustomShortcut format: CustomShortcut:<mod_hex>:<key_hex> (e.g. CustomShortcut:0x01:0x08)".to_string()
+            );
         }
-        _ => return Err(format!("unknown action: {s}")),
-    })
+        let modifiers =
+            parse_hex_u8(parts[0]).ok_or_else(|| format!("invalid modifier byte: {}", parts[0]))?;
+        let key_code =
+            parse_hex_u16(parts[1]).ok_or_else(|| format!("invalid key code: {}", parts[1]))?;
+        return Ok(Action::CustomShortcut(KeyCombo {
+            modifiers,
+            key_code,
+            display: String::new(),
+        }));
+    }
+
+    // Every other variant is a serde unit variant that deserializes straight
+    // from its name, so this list never drifts out of sync with the `Action`
+    // enum the way a hand-written match would.
+    Action::deserialize(s.into_deserializer())
+        .map_err(|_: serde::de::value::Error| format!("unknown action: {s}"))
 }
 
 fn strip_hex_prefix(s: &str) -> &str {
@@ -138,6 +107,11 @@ fn main() {
                     eprintln!("--delay: expected a number, got {val}");
                     std::process::exit(1);
                 });
+                // Duration::from_secs_f64 panics on negative / NaN / inf.
+                if !initial_delay_secs.is_finite() || initial_delay_secs < 0.0 {
+                    eprintln!("--delay: expected a non-negative number, got {val}");
+                    std::process::exit(1);
+                }
             }
             "--between" => {
                 let val = args.next().unwrap_or_else(|| {
