@@ -5,6 +5,7 @@
 //! IPC — it reads the config once at startup and applies it; the GUI talks to it
 //! over IPC in a later phase, which is also where live config reload lands.
 
+mod launch_agent;
 mod server;
 
 use std::sync::Arc;
@@ -43,6 +44,10 @@ fn main() {
 }
 
 async fn run(config: Config) {
+    // Reconcile the agent's launch-at-login autostart and clear the legacy GUI
+    // LaunchAgent, before `config` moves into the orchestrator.
+    launch_agent::reconcile(config.app_settings.launch_at_login);
+
     // The orchestrator is shared with the IPC server (which serves inventory /
     // reload / status) and mutated by the watcher select loop, so it lives
     // behind an async mutex. Locks are brief (a map rebuild or a clone).

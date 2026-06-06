@@ -805,7 +805,9 @@ impl AppState {
         if let Err(e) = self.config.save_atomic() {
             warn!(error = %e, "could not persist launch-at-login setting");
         }
-        crate::platform::launch_agent::reconcile(enabled);
+        // The agent owns autostart now; it reconciles its LaunchAgent (which
+        // points at the agent, not the GUI) when it reloads the config.
+        self.send_ipc(crate::ipc_client::Command::ReloadConfig);
     }
 
     /// Toggle the macOS menu-bar (status item) icon, persist it, and apply it

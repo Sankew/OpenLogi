@@ -51,7 +51,13 @@ impl Agent for AgentServer {
 
     async fn reload_config(self, _: Context) {
         match Config::load_or_default() {
-            Ok(config) => self.orchestrator.lock().await.reload_config(config),
+            Ok(config) => {
+                let launch_at_login = config.app_settings.launch_at_login;
+                self.orchestrator.lock().await.reload_config(config);
+                // The GUI's launch-at-login toggle reaches us through this
+                // reload, so re-reconcile the autostart from the new config.
+                crate::launch_agent::reconcile(launch_at_login);
+            }
             Err(e) => warn!(error = %e, "reload_config: parse failed; keeping current config"),
         }
     }

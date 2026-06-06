@@ -79,8 +79,6 @@ fn main() -> Result<()> {
         Err(e) => return Err(anyhow::Error::from(e).context("single-instance check")),
     };
 
-    reconcile_early_config();
-
     // Start with no devices and never block startup on HID enumeration — a
     // sleeping or unresponsive device must not be able to wedge the main thread
     // before the window opens. The inventory watcher (spawned below) enumerates
@@ -297,13 +295,6 @@ fn main() -> Result<()> {
     });
 
     Ok(())
-}
-
-fn reconcile_early_config() {
-    let early_config = Config::load_or_default().ok();
-    if let Some(cfg) = early_config.as_ref() {
-        platform::launch_agent::reconcile(cfg.app_settings.launch_at_login);
-    }
 }
 
 /// Asset-sync state, stored in an [`AtomicU8`] and polled on each inventory
