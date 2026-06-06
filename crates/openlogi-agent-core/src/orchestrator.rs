@@ -49,6 +49,10 @@ pub struct Orchestrator {
     devices: Vec<AgentDevice>,
     current: usize,
     current_app: Option<String>,
+    /// The latest inventory snapshot, kept so the IPC server can answer the
+    /// GUI's `inventory()` polls without re-enumerating (the agent owns all
+    /// device I/O).
+    last_inventory: Vec<DeviceInventory>,
     shared: SharedRuntime,
 }
 
@@ -72,6 +76,7 @@ impl Orchestrator {
             devices: Vec::new(),
             current: 0,
             current_app: None,
+            last_inventory: Vec::new(),
             shared,
         };
         orch.rebuild();
@@ -126,9 +131,22 @@ impl Orchestrator {
     /// Apply a fresh inventory snapshot: rebuild the device list, re-pick the
     /// selected device (by saved `config_key`, else the first), and rebuild.
     pub fn refresh_inventory(&mut self, inventories: &[DeviceInventory]) {
+        self.last_inventory = inventories.to_vec();
         self.devices = build_devices(inventories);
         self.current = pick_current(&self.devices, self.config.selected_device());
         self.rebuild();
+    }
+
+    /// The latest inventory snapshot (for the IPC `inventory()` poll).
+    #[must_use]
+    pub fn inventory(&self) -> Vec<DeviceInventory> {
+        self.last_inventory.clone()
+    }
+
+    /// Whether autostart is enabled in the current config (for IPC `status`).
+    #[must_use]
+    pub fn launch_at_login(&self) -> bool {
+        self.config.app_settings.launch_at_login
     }
 
     /// Foreground-app change → re-overlay per-app bindings (hook map only;

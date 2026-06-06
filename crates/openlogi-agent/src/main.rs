@@ -5,14 +5,21 @@
 //! IPC — it reads the config once at startup and applies it; the GUI talks to it
 //! over IPC in a later phase, which is also where live config reload lands.
 
+mod server;
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use openlogi_agent_core::orchestrator::Orchestrator;
 use openlogi_agent_core::{hook_runtime, watchers};
 use openlogi_core::config::Config;
 use openlogi_hook::Hook;
+use tokio::sync::Mutex;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
+
+use crate::server::AgentServer;
 
 fn main() {
     init_tracing();
@@ -22,7 +29,7 @@ fn main() {
         Config::default()
     });
 
-    let runtime = match tokio::runtime::Builder::new_current_thread()
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
     {
@@ -36,8 +43,12 @@ fn main() {
 }
 
 async fn run(config: Config) {
-    let mut orchestrator = Orchestrator::new(config);
-    let shared = orchestrator.shared();
+    // The orchestrator is shared with the IPC server (which serves inventory /
+    // reload / status) and mutated by the watcher select loop, so it lives
+    // behind an async mutex. Locks are brief (a map rebuild or a clone).
+    let orchestrator = Arc::new(Mutex::new(Orchestrator::new(config)));
+    let shared = orchestrator.lock().await.shared();
+    let hook_installed = Arc::new(AtomicBool::new(false));
 
     // The HID++ control watcher (gesture button, DPI/ModeShift button, thumb
     // wheel) needs no Accessibility permission — start it up front. It reads the
@@ -54,6 +65,19 @@ async fn run(config: Config) {
     let mut app_rx = watchers::foreground_app::spawn(Duration::from_secs(1));
     let mut accessibility_rx = watchers::accessibility::spawn(Duration::from_millis(1200));
 
+    // IPC server: the GUI connects here for device state + "apply now" commands.
+    match openlogi_core::paths::agent_socket_path() {
+        Ok(socket_path) => {
+            let server = AgentServer {
+                orchestrator: Arc::clone(&orchestrator),
+                shared: shared.clone(),
+                hook_installed: Arc::clone(&hook_installed),
+            };
+            tokio::spawn(server::run(server, socket_path));
+        }
+        Err(e) => warn!(error = %e, "could not resolve IPC socket path; IPC disabled"),
+    }
+
     // The CGEventTap hook is installed once Accessibility is granted and dropped
     // if it's revoked (the tap self-disables on revoke regardless; dropping the
     // handle stops its thread).
@@ -63,14 +87,15 @@ async fn run(config: Config) {
     loop {
         tokio::select! {
             Some(inventories) = inventory_rx.recv() => {
-                orchestrator.refresh_inventory(&inventories);
+                orchestrator.lock().await.refresh_inventory(&inventories);
             }
             Some(bundle) = app_rx.recv() => {
-                orchestrator.set_current_app(bundle);
+                orchestrator.lock().await.set_current_app(bundle);
             }
             Some(granted) = accessibility_rx.recv() => {
                 if !granted {
                     hook = None;
+                    hook_installed.store(false, Ordering::Relaxed);
                 }
                 if granted && hook.is_none() {
                     info!("accessibility granted — installing OS mouse hook");
@@ -79,6 +104,7 @@ async fn run(config: Config) {
                         shared.dpi_cycle.clone(),
                         shared.capture_channel.clone(),
                     );
+                    hook_installed.store(hook.is_some(), Ordering::Relaxed);
                 }
             }
             else => break,

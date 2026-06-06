@@ -4640,9 +4640,12 @@ dependencies = [
 name = "openlogi-agent"
 version = "0.5.1"
 dependencies = [
+ "futures",
  "openlogi-agent-core",
  "openlogi-core",
+ "openlogi-hid",
  "openlogi-hook",
+ "tarpc",
  "tokio",
  "tracing",
  "tracing-subscriber",

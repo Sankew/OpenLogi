@@ -8,7 +8,7 @@
 
 use openlogi_core::config::Lighting;
 use openlogi_core::device::DeviceInventory;
-use openlogi_hid::{CapturedInput, DeviceRoute, DpiInfo, SmartShiftMode, SmartShiftStatus};
+use openlogi_hid::{DeviceRoute, DpiInfo, SmartShiftMode, SmartShiftStatus};
 use serde::{Deserialize, Serialize};
 
 /// Wire-protocol version. Bumped only on a breaking change to the types below —
@@ -55,20 +55,7 @@ pub trait Agent {
     async fn read_dpi(route: DeviceRoute) -> Result<DpiInfo, String>;
     /// Read the current SmartShift config from `route`.
     async fn read_smartshift(route: DeviceRoute) -> Result<SmartShiftStatus, String>;
-    /// Begin a button-learning capture on `route` (tees the agent's existing
-    /// capture session to [`Agent::next_capture`]; does not open a 2nd channel).
-    async fn start_capture(route: DeviceRoute, capture_thumbwheel: bool);
-    /// Stop the button-learning capture stream.
-    async fn stop_capture();
-    /// Long-poll the next captured input: held until one arrives or the request
-    /// deadline elapses (then `None`).
-    async fn next_capture() -> Option<CapturedInput>;
-    /// Override the active app for per-app binding overlays. The agent also
-    /// tracks the frontmost app itself; this is an explicit/testing override.
-    async fn set_active_app(bundle_id: Option<String>);
     /// Prompt for Accessibility from the agent, so the system dialog names the
     /// agent — the actually-trusted binary — rather than the GUI.
     async fn request_accessibility_prompt();
-    /// Install or remove the agent's launchd autostart.
-    async fn set_launch_at_login(enabled: bool);
 }

@@ -17,8 +17,11 @@ path = "src/main.rs"
 [dependencies]
 openlogi-agent-core = { path = "../openlogi-agent-core" }
 openlogi-core = { path = "../openlogi-core" }
+openlogi-hid = { path = "../openlogi-hid" }
 openlogi-hook = { path = "../openlogi-hook" }
-tokio = { workspace = true }
+tarpc = { version = "0.37", features = ["serde1", "serde-transport", "serde-transport-bincode", "tokio1", "unix"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util"] }
+futures = "0.3"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 

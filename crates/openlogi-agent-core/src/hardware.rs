@@ -12,6 +12,7 @@
 //! transient open is kept as a fallback for callers (e.g. the CGEventTap hook)
 //! firing while no session is connected.
 
+use std::future::Future;
 use std::time::Duration;
 
 use openlogi_core::config::Lighting;
@@ -258,14 +259,7 @@ pub fn set_lighting_in_background(target: Option<DeviceRoute>, lighting: &Lighti
         debug!("no target device — lighting write skipped");
         return;
     };
-    let (r, g, b) = if lighting.enabled {
-        let (r, g, b) = parse_hex(&lighting.color);
-        let scale =
-            |c: u8| u8::try_from(u16::from(c) * u16::from(lighting.brightness) / 100).unwrap_or(c);
-        (scale(r), scale(g), scale(b))
-    } else {
-        (0, 0, 0)
-    };
+    let (r, g, b) = lighting_rgb(lighting);
     std::thread::spawn(move || {
         let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -292,4 +286,85 @@ fn parse_hex(hex: &str) -> (u8, u8, u8) {
         u8::try_from((v >> 8) & 0xff).unwrap_or(0),
         u8::try_from(v & 0xff).unwrap_or(0),
     )
+}
+
+/// Resolve a [`Lighting`] config to an `(r, g, b)` triple: the configured hex
+/// colour scaled by brightness, or black when lighting is off.
+fn lighting_rgb(lighting: &Lighting) -> (u8, u8, u8) {
+    if !lighting.enabled {
+        return (0, 0, 0);
+    }
+    let (r, g, b) = parse_hex(&lighting.color);
+    let scale =
+        |c: u8| u8::try_from(u16::from(c) * u16::from(lighting.brightness) / 100).unwrap_or(c);
+    (scale(r), scale(g), scale(b))
+}
+
+// ---------------------------------------------------------------------------
+// Async, awaitable variants used by the IPC server (the GUI routes "apply now"
+// / "read" device commands through the agent, which awaits and reports the
+// result). Writes reuse the capture session's open channel when it targets the
+// same device, exactly like the fire-and-forget `*_in_background` helpers, so
+// the daemon never opens a second channel to a device it already holds.
+// ---------------------------------------------------------------------------
+
+/// Apply `dpi` to `route`, reusing the capture session's channel when possible.
+pub async fn apply_dpi(
+    capture: &CaptureChannel,
+    route: &DeviceRoute,
+    dpi: u32,
+) -> Result<(), WriteError> {
+    let dpi = u16::try_from(dpi).unwrap_or(u16::MAX);
+    let shared = reusable_channel(Some(capture), route);
+    timed(async {
+        match &shared {
+            Some(shared) => openlogi_hid::set_dpi_on(shared, dpi).await,
+            None => openlogi_hid::set_dpi(route, dpi).await,
+        }
+    })
+    .await
+}
+
+/// Apply a full SmartShift config to `route` (capture-channel-aware).
+pub async fn apply_smartshift(
+    capture: &CaptureChannel,
+    route: &DeviceRoute,
+    mode: SmartShiftMode,
+    auto_disengage: u8,
+    tunable_torque: u8,
+) -> Result<(), WriteError> {
+    let shared = reusable_channel(Some(capture), route);
+    timed(async {
+        match &shared {
+            Some(shared) => {
+                openlogi_hid::set_smartshift_on(shared, mode, auto_disengage, tunable_torque).await
+            }
+            None => openlogi_hid::set_smartshift(route, mode, auto_disengage, tunable_torque).await,
+        }
+    })
+    .await
+}
+
+/// Apply a lighting config to the keyboard at `route`.
+pub async fn apply_lighting(route: &DeviceRoute, lighting: &Lighting) -> Result<(), WriteError> {
+    let (r, g, b) = lighting_rgb(lighting);
+    timed(openlogi_hid::set_keyboard_color(route, r, g, b)).await
+}
+
+/// Read the current DPI + supported values from `route`.
+pub async fn read_dpi(route: &DeviceRoute) -> Result<DpiInfo, WriteError> {
+    timed(openlogi_hid::get_dpi_info(route)).await
+}
+
+/// Read the current SmartShift config from `route`.
+pub async fn read_smartshift(route: &DeviceRoute) -> Result<SmartShiftStatus, WriteError> {
+    timed(openlogi_hid::get_smartshift_status(route)).await
+}
+
+/// Bound any single HID++ call by [`WRITE_BUDGET`] so an asleep / unresponsive
+/// device can't hang the awaiting IPC handler indefinitely.
+async fn timed<T>(fut: impl Future<Output = Result<T, WriteError>>) -> Result<T, WriteError> {
+    tokio::time::timeout(WRITE_BUDGET, fut).await.map_err(|_| {
+        WriteError::Hidpp("HID++ request timed out (device asleep/unresponsive)".into())
+    })?
 }
