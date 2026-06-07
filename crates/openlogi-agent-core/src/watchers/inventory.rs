@@ -45,16 +45,19 @@ pub fn spawn(period: Duration) -> mpsc::UnboundedReceiver<Vec<DeviceInventory>> 
             // is reused instead of being re-handshaked every poll.
             let mut enumerator = openlogi_hid::Enumerator::default();
             loop {
-                let inv = match rt.block_on(enumerator.enumerate()) {
-                    Ok(inv) => inv,
-                    Err(e) => {
-                        warn!(error = ?e, "enumerate failed during watch tick");
-                        Vec::new()
+                match rt.block_on(enumerator.enumerate()) {
+                    Ok(inv) => {
+                        if worker_tx.send(inv).is_err() {
+                            debug!("inventory watcher receiver dropped — exiting");
+                            return;
+                        }
                     }
-                };
-                if worker_tx.send(inv).is_err() {
-                    debug!("inventory watcher receiver dropped — exiting");
-                    return;
+                    // A failed enumerate means "couldn't check", NOT "no devices":
+                    // skip the tick so the agent keeps its last good device set
+                    // and live bindings instead of wiping them for ~one period. A
+                    // genuine disconnect comes back as an `Ok` empty snapshot,
+                    // which we DO forward.
+                    Err(e) => warn!(error = ?e, "enumerate failed during watch tick — keeping last snapshot"),
                 }
                 thread::sleep(period);
             }

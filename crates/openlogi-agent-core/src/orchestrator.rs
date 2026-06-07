@@ -128,11 +128,25 @@ impl Orchestrator {
         );
     }
 
-    /// Apply a fresh inventory snapshot: rebuild the device list, re-pick the
-    /// selected device (by saved `config_key`, else the first), and rebuild.
+    /// Apply a fresh inventory snapshot. Always refreshes the snapshot the IPC
+    /// `inventory()` poll serves (battery / online state changes without
+    /// altering the device *set*), but only re-picks the selection and rebuilds
+    /// the shared maps when the device set actually changed — `rebuild()` is
+    /// driven solely by `config_key` + route and resets the live DPI-cycle
+    /// index, so running it every 2s tick on an unchanged set would snap DPI
+    /// back to `preset[0]` (and burn three `RwLock` writes) for nothing.
     pub fn refresh_inventory(&mut self, inventories: &[DeviceInventory]) {
         self.last_inventory = inventories.to_vec();
-        self.devices = build_devices(inventories);
+        let devices = build_devices(inventories);
+        let changed = devices.len() != self.devices.len()
+            || devices
+                .iter()
+                .zip(&self.devices)
+                .any(|(a, b)| a.config_key != b.config_key || a.route != b.route);
+        if !changed {
+            return;
+        }
+        self.devices = devices;
         self.current = pick_current(&self.devices, self.config.selected_device());
         self.rebuild();
     }
