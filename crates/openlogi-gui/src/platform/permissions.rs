@@ -57,13 +57,13 @@ pub fn bluetooth() -> PermissionStatus {
 }
 
 /// Open the System Settings privacy pane for `permission`.
+///
+/// This only opens the deep link — it deliberately does **not** fire the
+/// Accessibility prompt. The agent owns the CGEventTap, so the prompt has to
+/// run in the agent process (see [`crate::state::AppState::request_accessibility_prompt`]);
+/// prompting here would authorize the GUI, the wrong binary.
 #[cfg(target_os = "macos")]
 pub fn open_pane(permission: Permission) {
-    // Accessibility is the one permission OpenLogi can request directly; firing
-    // the native prompt matches the in-app accessibility gate's button.
-    if matches!(permission, Permission::Accessibility) {
-        openlogi_hook::Hook::prompt_accessibility();
-    }
     let anchor = match permission {
         Permission::Accessibility => "Privacy_Accessibility",
         Permission::InputMonitoring => "Privacy_ListenEvent",

@@ -397,7 +397,17 @@ fn permission_field(
                 .cursor_pointer()
                 .hover(move |s| s.bg(pal.surface_hover))
                 .child(tr!("Open"))
-                .on_click(move |_, _, _| permissions::open_pane(permission)),
+                .on_click(move |_, _, cx| {
+                    // Accessibility must be prompted in the agent (it owns the
+                    // hook); prompting in the GUI would authorize the wrong
+                    // binary. Other panes just deep-link to System Settings.
+                    if matches!(permission, Permission::Accessibility)
+                        && let Some(state) = cx.try_global::<crate::state::AppState>()
+                    {
+                        state.request_accessibility_prompt();
+                    }
+                    permissions::open_pane(permission);
+                }),
         )
 }
 

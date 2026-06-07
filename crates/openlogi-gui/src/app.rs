@@ -1,5 +1,5 @@
 use gpui::{
-    AnyElement, AppContext as _, BorrowAppContext as _, BoxShadow, Context, Div, Entity,
+    AnyElement, App, AppContext as _, BorrowAppContext as _, BoxShadow, Context, Div, Entity,
     FontWeight, InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window, div, img, point,
     prelude::FluentBuilder as _, px, relative, rgb,
@@ -259,7 +259,7 @@ impl AppView {
                             .child(Icon::new(IconName::Settings))
                             .child(tr!("Open System Settings to grant access")),
                     )
-                    .on_click(|_, _, _| open_accessibility_settings()),
+                    .on_click(|_, _, cx| request_accessibility(cx)),
             )
             .child(div().text_xs().text_color(pal.text_muted).child(tr!(
                 "Takes effect automatically once granted — no restart needed."
@@ -281,10 +281,15 @@ impl AppView {
     }
 }
 
-fn open_accessibility_settings() {
+fn request_accessibility(cx: &mut App) {
     use crate::platform::permissions::{self, Permission};
-    // Single source of the prompt + System Settings deep link, shared with the
-    // Settings window's Permissions row.
+    // Ask the *agent* to fire the prompt (it owns the hook, so the system dialog
+    // must name and authorize openlogi-agent — prompting in the GUI would grant
+    // the wrong binary), then open the System Settings pane so the user can flip
+    // the switch. Shared by the gate button, the footer, and the Settings window.
+    if let Some(state) = cx.try_global::<AppState>() {
+        state.request_accessibility_prompt();
+    }
     permissions::open_pane(Permission::Accessibility);
 }
 
@@ -1256,7 +1261,7 @@ fn accessibility_status(pal: Palette, granted: bool) -> AnyElement {
                     .bg(rgb(theme::STATUS_CONNECTING)),
             )
             .child(div().child(tr!("Accessibility not granted · click to grant")))
-            .on_click(|_, _, _| open_accessibility_settings())
+            .on_click(|_, _, cx| request_accessibility(cx))
             .into_any_element()
     }
 }

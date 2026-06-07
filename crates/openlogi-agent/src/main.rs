@@ -87,6 +87,16 @@ async fn run(config: Config) {
     // LaunchAgent, before `config` moves into the orchestrator.
     launch_agent::reconcile(config.app_settings.launch_at_login);
 
+    // The agent owns the CGEventTap, so it must be the binary the user authorizes
+    // for Accessibility. Fire the prompt at startup when we're not yet trusted so
+    // openlogi-agent appears (named correctly) in System Settings even on a
+    // launchd start with no GUI. macOS only shows the dialog when we're not
+    // already in the list, so this doesn't nag on every login. The GUI's grant
+    // button drives the same prompt over IPC (`request_accessibility_prompt`).
+    if !Hook::has_accessibility() {
+        Hook::prompt_accessibility();
+    }
+
     // The orchestrator is shared with the IPC server (which serves inventory /
     // reload / status) and mutated by the watcher select loop, so it lives
     // behind an async mutex. Locks are brief (a map rebuild or a clone).

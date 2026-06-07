@@ -214,6 +214,14 @@ impl AppState {
         self.ipc_commands.clone()
     }
 
+    /// Ask the agent to fire the macOS Accessibility prompt. The agent owns the
+    /// CGEventTap, so the system dialog must name and authorize the *agent*
+    /// binary; prompting in the GUI process (as the pre-split build did) would
+    /// grant the wrong binary and the hook would never install.
+    pub fn request_accessibility_prompt(&self) {
+        self.send_ipc(crate::ipc_client::Command::RequestAccessibilityPrompt);
+    }
+
     /// Build the button-binding, gesture-binding, and DPI snapshots consumed by
     /// the OS hook and gesture watcher before the GPUI global exists. Uses the
     /// same device-selection and binding rules as [`Self::with_runtime_shared`].

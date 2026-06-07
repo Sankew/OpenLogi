@@ -47,6 +47,10 @@ pub enum Command {
         oneshot::Sender<Result<SmartShiftStatus, String>>,
     ),
     ReloadConfig,
+    /// Ask the agent to fire the macOS Accessibility prompt. The agent owns the
+    /// CGEventTap, so the system dialog must name (and authorize) the *agent*
+    /// binary, not the GUI — prompting locally would grant the wrong process.
+    RequestAccessibilityPrompt,
 }
 
 /// Handle the GUI holds to talk to the agent: a stream of poll snapshots and a
@@ -210,6 +214,10 @@ async fn handle(client: &mut Option<AgentClient>, cmd: Command) -> Result<(), ()
             let _ = reply.send(rpc_result(client.read_smartshift(ctx, route).await)?);
         }
         Command::ReloadConfig => client.reload_config(ctx).await.map_err(|_| ())?,
+        Command::RequestAccessibilityPrompt => client
+            .request_accessibility_prompt(ctx)
+            .await
+            .map_err(|_| ())?,
     }
     Ok(())
 }
