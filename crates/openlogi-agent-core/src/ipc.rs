@@ -1,10 +1,10 @@
 //! tarpc service contract between the GUI (client) and the agent (server).
 //!
 //! tarpc generates the `AgentClient` and the `serve` glue from this trait. tarpc
-//! is strict request/response — no server push — so the two streaming needs
-//! become polling: the GUI polls [`Agent::inventory`]/[`Agent::status`] on a
-//! timer, and button-learning long-polls [`Agent::next_capture`], which the
-//! agent holds open until a capture arrives or the request deadline elapses.
+//! is strict request/response — no server push — so the streaming needs become
+//! polling: the GUI polls [`Agent::inventory`]/[`Agent::status`] on a timer, and
+//! the Add Device flow long-polls [`Agent::next_pairing`], which the agent holds
+//! open until a pairing event arrives or the request deadline elapses.
 
 use openlogi_core::config::Lighting;
 use openlogi_core::device::DeviceInventory;

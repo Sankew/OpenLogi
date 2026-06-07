@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use openlogi_agent_core::ipc::{FoundDevice, PairingUpdate};
@@ -38,6 +38,12 @@ pub struct PairingManager {
     ctrl: mpsc::UnboundedSender<Control>,
     updates: Mutex<mpsc::UnboundedReceiver<PairingUpdate>>,
     devices: DeviceCache,
+    /// Count of outstanding pairing sessions. `start` increments it (and sets
+    /// `pairing_active`); the translator decrements it on each terminal event
+    /// and lifts the capture pause only when it reaches zero — so a stale
+    /// terminal from a just-cancelled session can't clear the pause a rapidly
+    /// restarted session set. Balanced: one `start` ⇒ exactly one terminal.
+    sessions: Arc<AtomicUsize>,
     shared: SharedRuntime,
 }
 
@@ -49,16 +55,19 @@ impl PairingManager {
         let (ctrl, raw_events) = pairing::spawn();
         let (upd_tx, upd_rx) = mpsc::unbounded_channel();
         let devices: DeviceCache = Arc::new(StdMutex::new(HashMap::new()));
+        let sessions = Arc::new(AtomicUsize::new(0));
         tokio::spawn(translate(
             raw_events,
             upd_tx,
             Arc::clone(&devices),
+            Arc::clone(&sessions),
             Arc::clone(&shared.pairing_active),
         ));
         Self {
             ctrl,
             updates: Mutex::new(upd_rx),
             devices,
+            sessions,
             shared,
         }
     }
@@ -68,6 +77,10 @@ impl PairingManager {
         if let Ok(mut devices) = self.devices.lock() {
             devices.clear();
         }
+        // Count this session before pausing, so a terminal event still in flight
+        // from a just-cancelled session can't lift the pause out from under it
+        // (the translator only clears when the count returns to zero).
+        self.sessions.fetch_add(1, Ordering::Relaxed);
         self.shared.pairing_active.store(true, Ordering::Relaxed);
         self.wait_capture_idle().await;
         let _ = self.ctrl.send(Control::Start(selector));
@@ -120,6 +133,7 @@ async fn translate(
     mut raw: mpsc::UnboundedReceiver<PairingEvent>,
     upd_tx: mpsc::UnboundedSender<PairingUpdate>,
     devices: DeviceCache,
+    sessions: Arc<AtomicUsize>,
     pairing_active: Arc<AtomicBool>,
 ) {
     while let Some(event) = raw.recv().await {
@@ -143,7 +157,13 @@ async fn translate(
             update,
             PairingUpdate::Paired { .. } | PairingUpdate::Failed(_)
         ) {
-            pairing_active.store(false, Ordering::Relaxed);
+            // Lift the capture pause only when the last outstanding session ends;
+            // fetch_sub composes with start()'s fetch_add, so a session started
+            // during this one's teardown keeps the pause held. (Balanced: every
+            // session emits exactly one terminal, so the count never underflows.)
+            if sessions.fetch_sub(1, Ordering::Relaxed) == 1 {
+                pairing_active.store(false, Ordering::Relaxed);
+            }
         }
         if upd_tx.send(update).is_err() {
             return; // the manager (and its receiver) is gone

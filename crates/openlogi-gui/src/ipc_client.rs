@@ -13,7 +13,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use openlogi_agent_core::ipc::{AgentClient, AgentStatus, PairingUpdate};
+use openlogi_agent_core::ipc::{AgentClient, AgentStatus, PROTOCOL_VERSION, PairingUpdate};
 use openlogi_core::config::Lighting;
 use openlogi_core::device::DeviceInventory;
 use openlogi_hid::{
@@ -222,8 +222,32 @@ async fn ensure(client: &mut Option<AgentClient>) -> std::io::Result<&AgentClien
         let path = openlogi_core::paths::agent_socket_path()
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         let transport = tarpc::serde_transport::unix::connect(&path, Bincode::default).await?;
-        *client = Some(AgentClient::new(client::Config::default(), transport).spawn());
-        debug!("connected to agent IPC socket");
+        let fresh = AgentClient::new(client::Config::default(), transport).spawn();
+        // Protocol handshake before any real RPC. A freshly-updated GUI can
+        // briefly reach an old agent (launchd hasn't restarted it yet); the
+        // mismatched bincode layouts would otherwise surface only as opaque
+        // RpcErrors and a silently empty device list. Refuse the connection
+        // with a clear log instead and keep `client` None — the next tick
+        // retries, and the versions converge once the agent restarts.
+        match fresh.protocol_version(context::current()).await {
+            Ok(version) if version == PROTOCOL_VERSION => {
+                *client = Some(fresh);
+                debug!("connected to agent IPC socket");
+            }
+            Ok(version) => {
+                warn!(
+                    agent = version,
+                    gui = PROTOCOL_VERSION,
+                    "agent IPC protocol mismatch — waiting for the agent to update/restart"
+                );
+                return Err(std::io::Error::other("IPC protocol version mismatch"));
+            }
+            Err(e) => {
+                return Err(std::io::Error::other(format!(
+                    "protocol handshake failed: {e}"
+                )));
+            }
+        }
     }
     // `client` is `Some` here (just set, or already was); the `None` arm is
     // unreachable but keeps this `expect`-free.
