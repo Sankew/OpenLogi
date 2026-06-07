@@ -99,12 +99,29 @@ impl SmartShiftPanel {
         let Some((key, route)) = smartshift_load_target(cx) else {
             return;
         };
-
         cx.update_global::<AppState, _>(|state, _| state.mark_smartshift_loading(&key));
-        // Read through the agent over IPC (it owns device I/O). The agent returns
-        // the typed `WriteError`, so a permanent `FeatureUnsupported` reaches
-        // `store_smartshift_status` intact and the panel stops re-probing a
-        // device that lacks the feature instead of retrying every reselect.
+        Self::issue_smartshift_read(key, route, cx);
+    }
+
+    /// Re-read once after an optimistic write to confirm the device actually
+    /// took it — a rejected / timed-out write would otherwise leave the panel
+    /// showing a setting that never applied. No Loading marker, so the
+    /// optimistic value stays on screen until the real state replaces it.
+    fn ensure_smartshift_confirm(cx: &mut Context<Self>) {
+        let Some((key, route)) =
+            cx.update_global::<AppState, _>(|state, _| state.take_active_smartshift_confirm())
+        else {
+            return;
+        };
+        Self::issue_smartshift_read(key, route, cx);
+    }
+
+    /// Send a SmartShift read over IPC and store the typed result. Shared by the
+    /// lazy initial load and the post-write confirm; the caller decides whether
+    /// to set the Loading marker first. The agent returns the typed `WriteError`,
+    /// so a permanent `FeatureUnsupported` reaches `store_smartshift_status`
+    /// intact and the panel stops re-probing instead of retrying every reselect.
+    fn issue_smartshift_read(key: String, route: DeviceRoute, cx: &mut Context<Self>) {
         let sender = cx.global::<AppState>().ipc_sender();
         let (tx, rx) = tokio::sync::oneshot::channel();
         if sender
@@ -260,6 +277,7 @@ impl SmartShiftPanel {
 impl Render for SmartShiftPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         Self::ensure_smartshift_load(cx);
+        Self::ensure_smartshift_confirm(cx);
         let pal = theme::palette(cx);
 
         let status = cx

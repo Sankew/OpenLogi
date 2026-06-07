@@ -141,6 +141,12 @@ pub struct AppState {
     /// Consecutive failed SmartShift read attempts, keyed by
     /// [`DeviceRecord::config_key`] — mirrors [`Self::dpi_load_attempts`].
     smartshift_load_attempts: BTreeMap<String, u8>,
+    /// Devices whose SmartShift was just written optimistically and still need a
+    /// confirming re-read, keyed by [`DeviceRecord::config_key`]. A fire-and-
+    /// forget write can be rejected/timed-out by a sleeping device, so the panel
+    /// re-reads (without a Loading flicker) to replace the optimistic value with
+    /// the device's actual state. See [`Self::commit_smartshift`].
+    smartshift_pending_confirm: std::collections::BTreeSet<String>,
     /// All paired devices, in carousel order. Each entry caches the per-
     /// device data the views need so a switch is a pure index update.
     pub device_list: Vec<DeviceRecord>,
@@ -190,6 +196,7 @@ impl AppState {
             dpi_load_attempts: BTreeMap::new(),
             smartshift_by_device: BTreeMap::new(),
             smartshift_load_attempts: BTreeMap::new(),
+            smartshift_pending_confirm: std::collections::BTreeSet::new(),
             device_list,
             config,
             ipc_commands,
@@ -760,15 +767,31 @@ impl AppState {
             ));
         }
         // Reflect the write immediately so the panel doesn't flicker back to
-        // the previous value before a re-read lands.
+        // the previous value before a re-read lands, but queue a confirming
+        // re-read: the write is fire-and-forget, so a sleeping device that
+        // rejected or timed it out would otherwise leave this optimistic value
+        // showing as "applied" forever (Ready blocks any further read).
         self.smartshift_by_device.insert(
-            key,
+            key.clone(),
             SmartShiftLoad::Ready(SmartShiftStatus {
                 mode,
                 auto_disengage,
                 tunable_torque,
             }),
         );
+        self.smartshift_pending_confirm.insert(key);
+    }
+
+    /// Take the active device's pending SmartShift confirm, if any. Returns the
+    /// `(config_key, route)` for a one-shot re-read that replaces the optimistic
+    /// value with the device's real state; consumed once so it doesn't re-fire.
+    pub fn take_active_smartshift_confirm(&mut self) -> Option<(String, DeviceRoute)> {
+        let record = self.current_record()?;
+        let key = record.config_key.clone();
+        let route = record.route.clone()?;
+        self.smartshift_pending_confirm
+            .remove(&key)
+            .then_some((key, route))
     }
 
     /// The lighting config for the active device, or the default when none is
