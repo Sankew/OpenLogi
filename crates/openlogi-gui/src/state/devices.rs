@@ -1,5 +1,6 @@
 //! Device-list construction and selection helpers for [`super::AppState`].
 
+use openlogi_agent_core::device_order::DeviceStableId;
 use openlogi_core::device::{BatteryInfo, Capabilities, DeviceInventory, DeviceKind};
 use openlogi_hid::{DIRECT_DEVICE_INDEX, DeviceRoute};
 use tracing::debug;
@@ -33,29 +34,6 @@ pub struct DeviceRecord {
     pub slot: u8,
     pub online: bool,
     pub battery: Option<BatteryInfo>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum DeviceStableId {
-    Bolt {
-        receiver_uid: String,
-        slot: u8,
-    },
-    Direct {
-        vendor_id: u16,
-        product_id: u16,
-        identity: DeviceIdentity,
-    },
-    Unknown {
-        slot: u8,
-        identity: DeviceIdentity,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum DeviceIdentity {
-    Serial(String),
-    Unit([u8; 4]),
 }
 
 pub(super) fn build_device_list(
@@ -111,42 +89,15 @@ pub(super) fn sort_device_list(list: &mut [DeviceRecord]) {
 
 fn device_order_key(record: &DeviceRecord) -> (DeviceStableId, String, String) {
     (
-        DeviceStableId::from_record(record),
+        DeviceStableId::from_parts(
+            record.route.as_ref(),
+            record.slot,
+            record.serial_number.as_deref(),
+            record.unit_id,
+        ),
         record.config_key.clone(),
         record.display_name.clone(),
     )
-}
-
-impl DeviceStableId {
-    fn from_record(record: &DeviceRecord) -> Self {
-        match &record.route {
-            Some(DeviceRoute::Bolt { receiver_uid, slot }) => Self::Bolt {
-                receiver_uid: receiver_uid.to_ascii_lowercase(),
-                slot: *slot,
-            },
-            Some(DeviceRoute::Direct {
-                vendor_id,
-                product_id,
-            }) => Self::Direct {
-                vendor_id: *vendor_id,
-                product_id: *product_id,
-                identity: DeviceIdentity::from_record(record),
-            },
-            None => Self::Unknown {
-                slot: record.slot,
-                identity: DeviceIdentity::from_record(record),
-            },
-        }
-    }
-}
-
-impl DeviceIdentity {
-    fn from_record(record: &DeviceRecord) -> Self {
-        record.serial_number.as_ref().map_or_else(
-            || Self::Unit(record.unit_id),
-            |serial| Self::Serial(serial.to_ascii_lowercase()),
-        )
-    }
 }
 
 /// Dev-only synthetic keyboard so the keyboard detail panel + lighting controls

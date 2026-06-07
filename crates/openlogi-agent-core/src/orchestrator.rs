@@ -21,14 +21,20 @@ use tracing::warn;
 
 use crate::DpiCycleState;
 use crate::bindings::{bindings_for, gesture_bindings_for};
+use crate::device_order::DeviceStableId;
 use crate::hook_runtime::BindingMap;
 use crate::watchers::gesture::GestureBindings;
 
 /// The minimal per-device facts the agent needs: the config key (binding /
-/// preset lookup) and the HID++ route (DPI/SmartShift writes + capture target).
+/// preset lookup), the HID++ route (DPI/SmartShift writes + capture target), and
+/// the identity fields the canonical ordering keys on (so the no-selection
+/// fallback agrees with the GUI carousel — see [`crate::device_order`]).
 struct AgentDevice {
     config_key: String,
     route: Option<DeviceRoute>,
+    slot: u8,
+    serial: Option<String>,
+    unit_id: [u8; 4],
 }
 
 /// The shared runtime handed to the hook and the gesture watcher. Every field
@@ -203,16 +209,33 @@ fn build_devices(inventories: &[DeviceInventory]) -> Vec<AgentDevice> {
             devices.push(AgentDevice {
                 config_key: model.config_key(),
                 route: device_route(inv, paired.slot),
+                slot: paired.slot,
+                serial: model.serial_number.clone(),
+                unit_id: model.unit_id,
             });
         }
     }
+    // Order by the same canonical key the GUI carousel uses, so the
+    // no-saved-selection fallback (`pick_current` -> index 0) targets the device
+    // the GUI shows first rather than whatever HID node enumerated first.
+    // `config_key` only breaks ties a unique `DeviceStableId` never produces.
+    devices.sort_by(|a, b| {
+        DeviceStableId::from_parts(a.route.as_ref(), a.slot, a.serial.as_deref(), a.unit_id)
+            .cmp(&DeviceStableId::from_parts(
+                b.route.as_ref(),
+                b.slot,
+                b.serial.as_deref(),
+                b.unit_id,
+            ))
+            .then_with(|| a.config_key.cmp(&b.config_key))
+    });
     devices
 }
 
 /// Index of the selected device: the one whose `config_key` matches the saved
-/// selection, else the first. (The GUI orders its list for a stable carousel;
-/// the agent only needs the selected device, so it keeps enumeration order —
-/// the order matters solely for this no-selection fallback.)
+/// selection, else the first. `build_devices` sorts by the same canonical key
+/// the GUI carousel uses, so "the first" is the same physical device in both
+/// processes even when nothing is persisted yet.
 fn pick_current(devices: &[AgentDevice], saved: Option<&str>) -> usize {
     saved
         .and_then(|key| devices.iter().position(|d| d.config_key == key))
