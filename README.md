@@ -78,6 +78,15 @@ Or install via [Homebrew](https://brew.sh):
 brew install --cask openlogi
 ```
 
+To explicitly track the latest GitHub release from AprilNEA's tap:
+
+```sh
+brew tap AprilNEA/tap
+brew install --cask AprilNEA/tap/openlogi@latest
+```
+
+Install either `openlogi` or `openlogi@latest`, not both.
+
 To build from source, see [DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Usage (CLI)
