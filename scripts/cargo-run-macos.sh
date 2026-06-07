@@ -55,4 +55,25 @@ fi
 # stale link. Fall back to a copy if the bundle ever lands on another volume.
 ln -f "$bin" "$MACOS/openlogi-gui" 2>/dev/null || cp -f "$bin" "$MACOS/openlogi-gui"
 
+# Embed the headless agent so the GUI can auto-spawn it in dev. The GUI's IPC
+# client (ipc_client::agent_binary_path) looks for the agent as the embedded
+# login-item helper beside the GUI executable — exactly the production layout
+# xtask's embed_agent_helper assembles. `cargo run -p openlogi-gui` builds only
+# the GUI, so build the agent in the matching profile and mirror that layout
+# here. Cheap after the first build (an incremental no-op); set
+# OPENLOGI_DEV_AGENT=0 to run the GUI against a separately launched agent.
+if [ "${OPENLOGI_DEV_AGENT:-1}" != "0" ]; then
+  agent_dir="$(dirname "$bin")" # target/debug or target/release
+  if [ "${agent_dir##*/}" = "release" ]; then
+    cargo build -p openlogi-agent --release --manifest-path "$ROOT/Cargo.toml"
+  else
+    cargo build -p openlogi-agent --manifest-path "$ROOT/Cargo.toml"
+  fi
+  helper="$APP/Contents/Library/LoginItems/OpenLogiAgent.app"
+  mkdir -p "$helper/Contents/MacOS"
+  ln -f "$agent_dir/openlogi-agent" "$helper/Contents/MacOS/openlogi-agent" 2>/dev/null \
+    || cp -f "$agent_dir/openlogi-agent" "$helper/Contents/MacOS/openlogi-agent"
+  cp -f "$ROOT/crates/openlogi-agent/macos/Info.plist" "$helper/Contents/Info.plist"
+fi
+
 exec "$MACOS/openlogi-gui" "$@"
