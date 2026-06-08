@@ -50,6 +50,9 @@ async-hid = "0.5.2"
 # socket on Unix, a named pipe on Windows. The `tokio` feature gives the async
 # Stream/Listener used by serde_transport.
 interprocess = { version = "2", features = ["tokio"] }
+# Windows FFI for the leaf input/HID paths (WH_MOUSE_LL hook, SendInput action
+# synthesis, native HID writes). Features are selected per crate.
+windows-sys = "0.61"
 tokio = { version = "1", default-features = false, features = ["rt", "macros", "sync", "time"] }
 futures-lite = "2"
 serde = { version = "1", features = ["derive"] }
