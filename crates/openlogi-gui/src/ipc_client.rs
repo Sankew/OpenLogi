@@ -21,7 +21,6 @@ use openlogi_hid::{
 };
 use tarpc::client;
 use tarpc::context;
-use tarpc::tokio_serde::formats::Bincode;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, warn};
 
@@ -219,9 +218,8 @@ fn agent_binary_path() -> Option<PathBuf> {
 /// unreachable right now (it may be starting up / restarting).
 async fn ensure(client: &mut Option<AgentClient>) -> std::io::Result<&AgentClient> {
     if client.is_none() {
-        let path = openlogi_core::paths::agent_socket_path()
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
-        let transport = tarpc::serde_transport::unix::connect(&path, Bincode::default).await?;
+        let stream = openlogi_agent_core::transport::connect().await?;
+        let transport = openlogi_agent_core::transport::wrap(stream);
         let fresh = AgentClient::new(client::Config::default(), transport).spawn();
         // Protocol handshake before any real RPC. A freshly-updated GUI can
         // briefly reach an old agent (launchd hasn't restarted it yet); the

@@ -130,18 +130,15 @@ async fn run(config: Config) {
     let mut accessibility_rx = watchers::accessibility::spawn(Duration::from_millis(1200));
 
     // IPC server: the GUI connects here for device state + "apply now" commands.
-    match openlogi_core::paths::agent_socket_path() {
-        Ok(socket_path) => {
-            let server = AgentServer {
-                orchestrator: Arc::clone(&orchestrator),
-                shared: shared.clone(),
-                hook_installed: Arc::clone(&hook_installed),
-                pairing: Arc::clone(&pairing),
-            };
-            tokio::spawn(server::run(server, socket_path));
-        }
-        Err(e) => warn!(error = %e, "could not resolve IPC socket path; IPC disabled"),
-    }
+    // The endpoint (Unix socket / Windows named pipe) is resolved inside
+    // `transport::bind`, called by `server::run`.
+    let server = AgentServer {
+        orchestrator: Arc::clone(&orchestrator),
+        shared: shared.clone(),
+        hook_installed: Arc::clone(&hook_installed),
+        pairing: Arc::clone(&pairing),
+    };
+    tokio::spawn(server::run(server));
 
     // The CGEventTap hook is installed once Accessibility is granted and dropped
     // if it's revoked (the tap self-disables on revoke regardless; dropping the
