@@ -440,13 +440,22 @@ impl HidppChannel {
 
         let (sender, receiver) = oneshot::channel::<HidppMessage>();
 
-        self.pending_messages
-            .lock()
-            .unwrap()
-            .push_back(PendingMessage {
+        {
+            let mut pending = self.pending_messages.lock().unwrap();
+            // Drop abandoned requests before queuing this one: a caller that
+            // timed out (or was cancelled) drops its receiver, leaving its
+            // `PendingMessage` behind since only a *matching response* removes an
+            // entry. On a short-lived channel that didn't matter, but a channel
+            // reused across inventory ticks would otherwise accumulate stale
+            // entries unboundedly — and a late response could be mis-delivered to
+            // a recycled software id. `is_canceled()` is true once the receiver
+            // is gone, so this prunes exactly the give-ups.
+            pending.retain(|m| !m.sender.is_canceled());
+            pending.push_back(PendingMessage {
                 response_predicate: Box::new(response_predicate),
                 sender,
             });
+        }
 
         self.send_and_forget(msg).await?;
 

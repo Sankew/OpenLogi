@@ -172,7 +172,22 @@ pub struct Enumerator {
     /// Consecutive ticks each cached device has been missing, for grace-period
     /// eviction.
     misses: HashMap<CacheKey, u8>,
+    /// Open HID++ channels reused across ticks, keyed by OS node id. Opening (and
+    /// tearing down) a device every ~2s tick is the churn issue #99 is about —
+    /// each open also leaks an `io_service_t` in async-hid's macOS backend — so a
+    /// steadily-connected node is opened once here and reused until it
+    /// disconnects.
+    channels: HashMap<async_hid::DeviceId, CachedChannel>,
     tick: u64,
+}
+
+/// An open channel to a receiver / direct-device HID node, held across
+/// `enumerate` ticks. Evicting it (on disconnect, or when the `Enumerator`
+/// drops) closes the device and joins the channel's read thread via
+/// [`HidppChannel`]'s `Drop`.
+struct CachedChannel {
+    info: async_hid::DeviceInfo,
+    channel: Arc<HidppChannel>,
 }
 
 /// Enumerate all Logitech HID++ receivers visible to the current process and
@@ -204,14 +219,50 @@ impl Enumerator {
         let candidates = enumerate_hidpp_devices().await?;
         debug!(count = candidates.len(), "HID++ candidate interfaces");
 
-        // Borrow the cache read-only for the concurrent probes; updates are
-        // collected and applied afterwards so the futures share `&cache` without
-        // a `RefCell`. Each candidate is an independent HID interface.
+        // Reuse an open channel per node, opening one only for a node seen for
+        // the first time. Sequential because opening mutates the channel cache,
+        // but in steady state every node is already cached so this is just
+        // lookups — an actual open happens only when a new device appears.
+        let mut active: Vec<(async_hid::DeviceInfo, Arc<HidppChannel>)> = Vec::new();
+        let mut seen_nodes: HashSet<async_hid::DeviceId> = HashSet::new();
+        for dev in candidates {
+            let node = dev.id.clone();
+            seen_nodes.insert(node.clone());
+            if let Some(open) = self.channels.get(&node) {
+                active.push((open.info.clone(), Arc::clone(&open.channel)));
+                continue;
+            }
+            match open_hidpp_channel(dev).await {
+                Ok(Some((info, channel))) => {
+                    self.channels.insert(
+                        node,
+                        CachedChannel {
+                            info: info.clone(),
+                            channel: Arc::clone(&channel),
+                        },
+                    );
+                    active.push((info, channel));
+                }
+                Ok(None) => {} // speaks HID but not HID++ — not one of ours
+                Err(e) => warn!(error = ?e, "failed to open HID++ channel — retrying next tick"),
+            }
+        }
+        // Drop channels for nodes that vanished this tick. A node missing from
+        // the enumeration is a real disconnect (the IOHIDManager device set is
+        // authoritative, unlike a HID++ probe timeout), so close the device and
+        // join its read thread now instead of leaving a dead channel behind; a
+        // reconnect re-opens under a fresh node id.
+        self.channels.retain(|node, _| seen_nodes.contains(node));
+
+        // Probe each open channel concurrently, sharing `&cache` read-only;
+        // updates are collected and applied afterwards (no `RefCell`).
         let results = {
             let cache = &self.cache;
-            candidates
+            active
                 .into_iter()
-                .map(|dev| async move { timeout(PROBE_BUDGET, probe_one(dev, cache, tick)).await })
+                .map(|(info, channel)| async move {
+                    timeout(PROBE_BUDGET, probe_one(info, channel, cache, tick)).await
+                })
                 .collect::<Vec<_>>()
                 .join()
                 .await
@@ -221,11 +272,10 @@ impl Enumerator {
         let mut outcomes = Vec::new();
         for result in results {
             match result {
-                Ok(Ok((inv, mut probed))) => {
+                Ok((inv, mut probed)) => {
                     inventories.extend(inv);
                     outcomes.append(&mut probed);
                 }
-                Ok(Err(e)) => warn!(error = ?e, "skipping device that failed to probe"),
                 Err(_) => {
                     warn!(budget = ?PROBE_BUDGET, "device probe timed out — skipping (asleep/unresponsive)");
                 }
@@ -273,24 +323,22 @@ impl Enumerator {
     }
 }
 
-/// Probe one HID candidate. Returns its inventory (if any) plus each device's
-/// cache contribution this tick, for the caller to apply and to drive eviction.
+/// Probe one open HID++ node (channel reused across ticks by the caller).
+/// Returns its inventory (if any) plus each device's cache contribution this
+/// tick, for the caller to apply and to drive eviction.
 async fn probe_one(
-    dev: async_hid::Device,
+    info: async_hid::DeviceInfo,
+    channel: Arc<HidppChannel>,
     cache: &HashMap<CacheKey, Cached>,
     tick: u64,
-) -> Result<(Option<DeviceInventory>, Vec<CacheOutcome>), InventoryError> {
-    let Some((info, channel)) = open_hidpp_channel(dev).await? else {
-        return Ok((None, Vec::new()));
-    };
-
+) -> (Option<DeviceInventory>, Vec<CacheOutcome>) {
     let Some(Receiver::Bolt(bolt)) = receiver::detect(Arc::clone(&channel)) else {
         // No receiver detected — this might be a directly-paired device
         // (Bluetooth-direct, USB-C cable). HID++ at device-index 0xff
         // addresses the device's own features. Probe in case it answers.
         // P2.4 — verified path; no Bolt-pairing slot indirection needed.
         let (inventory, outcome) = probe_direct(channel, &info, cache, tick).await;
-        return Ok((inventory, vec![outcome]));
+        return (inventory, vec![outcome]);
     };
 
     let unique_id = bolt.get_unique_id().await.ok();
@@ -323,7 +371,7 @@ async fn probe_one(
         );
     }
 
-    Ok((
+    (
         Some(DeviceInventory {
             receiver: ReceiverInfo {
                 name: "Logi Bolt Receiver".to_string(),
@@ -334,7 +382,7 @@ async fn probe_one(
             paired,
         }),
         outcomes,
-    ))
+    )
 }
 
 /// Probe a single Bolt pairing slot. Returns `None` when the slot is empty or

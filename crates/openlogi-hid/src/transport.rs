@@ -155,6 +155,10 @@ pub(crate) async fn open_hidpp_channel(
             return Ok(None);
         }
     };
+    // Logged once per actual open. The inventory watcher reuses channels across
+    // ticks, so a steadily-connected device should log this on first sight (and
+    // on reconnect) only — not every ~2s tick.
+    debug!(name = %info.name, vid = format_args!("{:04x}", info.vendor_id), "opened HID++ channel");
     Ok(Some((info, channel)))
 }
 
@@ -201,8 +205,21 @@ impl RawHidChannel for AsyncHidChannel {
     }
 
     async fn read_report(&self, buf: &mut [u8]) -> Result<usize, Box<dyn Error + Send + Sync>> {
-        let mut r = self.reader.lock().await;
-        Ok(r.read_input_report(buf).await?)
+        let result = {
+            let mut r = self.reader.lock().await;
+            r.read_input_report(buf).await
+        };
+        match result {
+            Ok(n) => Ok(n),
+            // The device disconnected — there will never be another input
+            // report. Surfacing the error would make the `hidpp` read loop
+            // busy-spin (it retries on read errors), pinning a core until the
+            // inventory watcher evicts this now-long-lived channel. Park instead:
+            // the read is cancelled when the channel drops, and the read loop's
+            // `select!` still wakes on the close signal regardless of this future.
+            Err(async_hid::HidError::Disconnected) => std::future::pending().await,
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn supports_short_long_hidpp(&self) -> Option<(bool, bool)> {
