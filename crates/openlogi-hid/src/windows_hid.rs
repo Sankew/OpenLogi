@@ -30,7 +30,11 @@ impl NativeHidWriter {
         let DeviceId::UncPath(path) = &info.id else {
             return None;
         };
-        let mut path: Vec<u16> = path.to_string_lossy().encode_utf16().collect();
+        // `HSTRING` derefs to its UTF-16 code units (`[u16]`, sans terminator);
+        // copy them directly instead of round-tripping through a lossy UTF-8
+        // `String`, which would corrupt a path with unpaired surrogates.
+        // CreateFileW needs the path NUL-terminated.
+        let mut path: Vec<u16> = path.to_vec();
         path.push(0);
         Some(Self { path })
     }
