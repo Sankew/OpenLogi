@@ -300,14 +300,65 @@ impl WindowsHidppChannel {
 async fn find_windows_short_collection(
     long_info: &DeviceInfo,
 ) -> Result<Option<async_hid::Device>, async_hid::HidError> {
+    // Pair the short collection to *this* long collection by physical interface,
+    // not by vendor/product/name. Two identical Logitech devices share all three,
+    // so an attribute match could splice one device's short handle onto another's
+    // long handle. The grouping key (derived from the device path) is unique per
+    // physical interface, so it always pairs the correct siblings. A node whose
+    // path has an unexpected shape yields `None` and stays long-only.
+    let Some(long_key) = grouping_key(long_info) else {
+        return Ok(None);
+    };
     let all: Vec<async_hid::Device> = HID_BACKEND.enumerate().await?.collect().await;
     Ok(all.into_iter().find(|d| {
-        d.vendor_id == long_info.vendor_id
-            && d.product_id == long_info.product_id
-            && d.name == long_info.name
-            && d.usage_page == 0xff00
+        d.usage_page == 0xff00
             && d.usage_id == 0x0001
+            && grouping_key(d).as_deref() == Some(long_key.as_str())
     }))
+}
+
+/// The device-path key shared by the short and long HID++ collections of one
+/// physical interface. `None` for a non-path device id, which never occurs on
+/// Windows (every id is a `UncPath`).
+#[cfg(target_os = "windows")]
+fn grouping_key(info: &DeviceInfo) -> Option<String> {
+    match &info.id {
+        async_hid::DeviceId::UncPath(p) => Some(normalize_collection_path(&p.to_string())),
+        _ => None,
+    }
+}
+
+/// Collapse a Windows HID interface path to a key that is equal for the short
+/// (`&Col01`) and long (`&Col02`) collections of one physical interface and
+/// distinct across different interfaces or physical devices.
+///
+/// A receiver path looks like
+/// `\\?\HID#VID_046D&PID_C548&MI_02&Col01#7&348660ac&0&0000#{guid}`. The two
+/// HID++ collections share everything except the `&Col0X` hardware-id token and
+/// the trailing instance-id segment (`&0000` / `&0001`); stripping both yields a
+/// shared key. Falls back to the whole lowercased path when the shape is
+/// unexpected, so an unrecognized format simply never pairs — safe, as the node
+/// then behaves as a long-only single handle.
+#[cfg_attr(
+    not(target_os = "windows"),
+    allow(
+        dead_code,
+        reason = "pure path parser is exercised by host unit tests; its only runtime caller is the Windows-gated grouping_key"
+    )
+)]
+fn normalize_collection_path(path: &str) -> String {
+    let lower = path.to_ascii_lowercase();
+    let segments: Vec<&str> = lower.split('#').collect();
+    let (Some(hw), Some(inst)) = (segments.get(1), segments.get(2)) else {
+        return lower;
+    };
+    let hw_key = hw
+        .split('&')
+        .filter(|s| !s.starts_with("col"))
+        .collect::<Vec<_>>()
+        .join("&");
+    let inst_key = inst.rsplit_once('&').map_or(*inst, |(head, _)| head);
+    format!("{hw_key}#{inst_key}")
 }
 
 #[cfg(target_os = "windows")]
@@ -347,6 +398,12 @@ impl RawHidChannel for WindowsHidppChannel {
                 let mut long_buf = [0u8; LONG_REPORT_LENGTH];
                 let mut short_reader = short.reader.lock().await;
                 let mut long_reader = long.reader.lock().await;
+                // `select!` drops the losing read future, but no report is lost:
+                // async-hid's win32 `IoBuffer` owns the in-flight OVERLAPPED read and
+                // its buffer (not the future), so the pending operation survives the
+                // drop, and the next `read_report` — re-locking this same endpoint —
+                // resumes it and retrieves the report. This relies on reusing the
+                // per-endpoint reader across calls; do not reopen readers per read.
                 tokio::select! {
                     res = short_reader.read_input_report(&mut short_buf) => {
                         copy_report(&short_buf, res?, buf)
@@ -493,5 +550,56 @@ mod tests {
         assert!(!is_long_only_collection(0xff00, 0x0002)); // USB / receiver carries both reports
         assert!(!is_long_only_collection(0xff43, 0x0602)); // wired G-series keyboard carries both
         assert!(!is_long_only_collection(0x0001, 0x0002)); // not a HID++ collection at all
+    }
+
+    #[test]
+    fn short_and_long_collections_of_one_interface_share_a_grouping_key() {
+        // Real Bolt receiver paths: the short (Col01) and long (Col02) HID++
+        // collections of interface MI_02 must collapse to the same key.
+        let short = normalize_collection_path(
+            r"\\?\HID#VID_046D&PID_C548&MI_02&Col01#7&348660ac&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+        );
+        let long = normalize_collection_path(
+            r"\\?\HID#VID_046D&PID_C548&MI_02&Col02#7&348660ac&0&0001#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+        );
+        assert_eq!(short, long);
+        assert_eq!(short, "vid_046d&pid_c548&mi_02#7&348660ac&0");
+    }
+
+    #[test]
+    fn distinct_interfaces_do_not_share_a_grouping_key() {
+        // A different interface (MI_01) on the same receiver has its own instance
+        // hash, so it must not pair with MI_02's HID++ collections.
+        let mi01 = normalize_collection_path(
+            r"\\?\HID#VID_046D&PID_C548&MI_01&Col02#7&1cc2d467&0&0001#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+        );
+        let mi02 = normalize_collection_path(
+            r"\\?\HID#VID_046D&PID_C548&MI_02&Col02#7&348660ac&0&0001#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+        );
+        assert_ne!(mi01, mi02);
+    }
+
+    #[test]
+    fn distinct_physical_receivers_do_not_share_a_grouping_key() {
+        // Two receivers plugged in at once (here two identical Bolt receivers,
+        // same VID/PID/interface/collection) must not cross-pair: each physical
+        // device has a distinct instance hash, which the key preserves. This is
+        // the multi-receiver scenario the single-interface tests don't cover.
+        let recv_a = normalize_collection_path(
+            r"\\?\HID#VID_046D&PID_C548&MI_02&Col01#7&348660ac&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+        );
+        let recv_b = normalize_collection_path(
+            r"\\?\HID#VID_046D&PID_C548&MI_02&Col01#7&9f1be20c&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+        );
+        assert_ne!(recv_a, recv_b);
+
+        // A Bolt + a Unifying receiver (different PID) must also stay distinct.
+        let bolt = normalize_collection_path(
+            r"\\?\HID#VID_046D&PID_C548&MI_02&Col02#7&348660ac&0&0001#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+        );
+        let unifying = normalize_collection_path(
+            r"\\?\HID#VID_046D&PID_C52B&MI_02&Col02#7&1a2b3c4d&0&0001#{4d1e55b2-f16f-11cf-88cb-001111000030}",
+        );
+        assert_ne!(bolt, unifying);
     }
 }
