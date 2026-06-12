@@ -1,9 +1,9 @@
 # Installing OpenLogi on Linux
 
-> [!WARNING]
-> Linux support is in active development. HID++ device enumeration currently
-> requires a **Logi Bolt receiver** (USB PID `0xC548`). Unifying receiver support
-> is not yet available.
+> [!NOTE]
+> Linux support is in active development. HID++ device enumeration supports
+> **Logi Bolt** (USB PID `0xC548`) and **Logi Unifying** (PID `0xC52B` and
+> others) receivers, as well as Bluetooth-direct devices.
 
 ## Prerequisites
 
@@ -15,8 +15,10 @@
 
 ## Build from source
 
-There are no pre-built Linux packages yet (coming in a future release). Build
-with the stable Rust toolchain:
+Pre-built `.deb` and `.rpm` packages are available on the
+[releases page](https://github.com/AprilNEA/OpenLogi/releases/latest) — see
+the main [README](../README.md#linux) for the package-based install. To build
+from source instead, use the stable Rust toolchain:
 
 ```sh
 git clone https://github.com/AprilNEA/OpenLogi
@@ -125,6 +127,5 @@ openlogi-gui
 
 | Limitation | Status |
 |---|---|
-| Unifying receiver (PID `0xC52B` and others) | Not yet supported |
 | Wayland: per-application profile switching | Requires XWayland (`WM_CLASS` lookup uses X11) |
 | Button capture: middle / mode-shift / thumbwheel | Side buttons only today |

@@ -40,7 +40,7 @@ two binaries:
 
 Everything is local: bindings live in a plain TOML file, button presses are remapped through the OS event tap, and DPI / SmartShift changes are written straight to the device over HID++.
 
-macOS is supported today; Linux and Windows are coming soon — see
+macOS and Linux are supported. Windows support is planned — see
 [Roadmap](#roadmap).
 
 ## Roadmap
@@ -48,27 +48,30 @@ macOS is supported today; Linux and Windows are coming soon — see
 | Capability | State |
 |---|---|
 | Discover Bolt receivers + list paired devices (CLI + GUI) | ✅ |
+| Unifying receivers (older protocol, replaced by Bolt) | ✅ |
 | Bluetooth-direct / wired devices (no receiver) | ✅ |
 | Battery percentage / charge state | ✅ (online devices) |
-| Interactive GUI: carousel, mouse diagram, action picker | ✅ macOS |
-| Button remapping via the OS event tap (side Back / Forward today) | ✅ macOS |
-| 39-action catalog + recorded custom keyboard shortcuts | ✅ macOS¹ |
-| DPI control + presets + Cycle / Set-preset actions (HID++ `0x2201`) | ✅ macOS |
-| SmartShift wheel: mode toggle + sensitivity + permanent-ratchet panel (HID++ `0x2111`) | ✅ macOS |
-| Per-application profile overlays (auto-switch on app focus) | ✅ macOS |
-| Settings window: launch-at-login, update check, menu-bar, permissions, language | ✅ macOS |
-| Interface localization (20 languages: da, de, el, en, es, fi, fr, it, ja, ko, nb, nl, pl, pt-BR, pt-PT, ru, sv, zh-CN, zh-HK, zh-TW) | ✅ macOS |
+| Interactive GUI: carousel, mouse diagram, action picker | ✅ macOS + Linux |
+| Button remapping via the OS event tap / evdev hook | ✅ macOS + Linux |
+| 39-action catalog + recorded custom keyboard shortcuts | ✅ macOS + Linux¹ |
+| DPI control + presets + Cycle / Set-preset actions (HID++ `0x2201`) | ✅ |
+| SmartShift wheel: mode toggle + sensitivity + permanent-ratchet panel (HID++ `0x2111`) | ✅ |
+| Per-application profile overlays (auto-switch on app focus) | ✅ macOS, 🟡 Linux (X11 only) |
+| Settings window: launch-at-login, update check, menu-bar, permissions, language | ✅ macOS + Linux |
+| Interface localization (20 languages: da, de, el, en, es, fi, fr, it, ja, ko, nb, nl, pl, pt-BR, pt-PT, ru, sv, zh-CN, zh-HK, zh-TW) | ✅ |
+| Linux packaging: udev rules, systemd unit, `.deb` / `.rpm` | ✅ Linux |
 | Gesture-button per-direction bindings | 🟡 configurable; hardware capture pending |
 | Middle / mode-shift / thumbwheel button capture | 🟡 configurable; hook owns side buttons only |
-| Linux / Windows event hook | ❌ stub (`Unsupported`) |
-| Unifying receivers | ❌ (not yet supported) |
+| Windows event hook | ❌ |
 
-¹ A few actions (e.g. the media keys) currently log their intended event rather than posting it — tracked as a follow-up.
+¹ Media key actions use D-Bus MPRIS on Linux; a handful of macOS-specific actions (e.g. Launchpad) have no Linux equivalent and are no-ops.
 
 ## Install
 
 > [!IMPORTANT]
 > Quit **Logi Options+** first — the two applications fight over HID++ access and only one can own a given receiver at a time.
+
+### macOS
 
 Download the signed, notarized `.dmg` from the [latest release](https://github.com/AprilNEA/OpenLogi/releases/latest) and drag `OpenLogi.app` to `/Applications`.
 
@@ -90,23 +93,31 @@ brew install --cask aprilnea/tap/openlogi@latest
 before the official cask autobump lands. Install either `openlogi` or
 `openlogi@latest`, not both.
 
-To build from source, see [DEVELOPMENT.md](docs/DEVELOPMENT.md).
-
 ### Linux
 
-There are no pre-built Linux packages yet. Build from source and install the
-udev rules so OpenLogi can open `/dev/uinput` and `/dev/hidraw*` without `sudo`:
+Download the `.deb` or `.rpm` from the [latest release](https://github.com/AprilNEA/OpenLogi/releases/latest):
 
 ```sh
-git clone https://github.com/AprilNEA/OpenLogi
-cd OpenLogi
-cargo build --release
-sudo cp packaging/linux/udev/70-openlogi.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules && sudo udevadm trigger
+# Debian / Ubuntu
+sudo dpkg -i openlogi_*.deb
+
+# Fedora / RHEL
+sudo rpm -i openlogi-*.rpm
 ```
 
-See [docs/INSTALL-linux.md](docs/INSTALL-linux.md) for full instructions,
-autostart setup, and known limitations.
+The package installs udev rules that grant your user access to
+`/dev/hidraw*` and `/dev/uinput` without `sudo`. After installation,
+enable the background agent for your user:
+
+```sh
+systemctl --user enable --now openlogi-agent.service
+```
+
+See [docs/INSTALL-linux.md](docs/INSTALL-linux.md) for manual / source installs
+and distros without systemd.
+
+To build from source, see [DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
 
 ## Usage (CLI)
 
