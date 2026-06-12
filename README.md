@@ -92,25 +92,21 @@ before the official cask autobump lands. Install either `openlogi` or
 
 To build from source, see [DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-### Linux device permissions (preview)
+### Linux
 
-The CLI/device layer builds and runs on Linux today (`cargo build -p openlogi`;
-needs `libudev-dev` + `pkg-config`). By default every `hidraw` node is
-`root:root 0600`, so without a udev rule the tools fail with
-`PermissionDenied (os error 13)`.
-
-Install the bundled rule, which covers both transports — Bolt receiver (USB) and
-Bluetooth-direct (which hangs off `uhid` and exposes no USB `idVendor`, so it is
-matched by its HID id `0005:046D:*`):
+There are no pre-built Linux packages yet. Build from source and install the
+udev rules so OpenLogi can open `/dev/uinput` and `/dev/hidraw*` without `sudo`:
 
 ```sh
-sudo cp udev/70-openlogi.rules /etc/udev/rules.d/
+git clone https://github.com/AprilNEA/OpenLogi
+cd OpenLogi
+cargo build --release
+sudo cp packaging/linux/udev/70-openlogi.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
-# then power-cycle the device (or replug the receiver) so the ACL is applied
 ```
 
-It uses systemd `uaccess` (group-free, works under X11 and Wayland/GNOME). After
-applying it, `openlogi list` runs without `sudo`.
+See [docs/INSTALL-linux.md](docs/INSTALL-linux.md) for full instructions,
+autostart setup, and known limitations.
 
 ## Usage (CLI)
 
