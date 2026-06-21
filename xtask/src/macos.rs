@@ -1,15 +1,12 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command as ProcessCommand, Stdio};
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
+use xshell::{Shell, cmd};
 
-use crate::util::{
-    absolutize, command_exists, command_stdout, ensure_command, ensure_dir, ensure_file, repo_root,
-    run, with_env,
-};
+use crate::util::{absolutize, command_exists, ensure_command, ensure_dir, ensure_file, repo_root};
 
 #[derive(Parser)]
 pub(crate) struct DmgMacos {
@@ -43,6 +40,7 @@ pub(crate) fn package_macos(args: &DmgMacos) -> Result<()> {
 
 pub(crate) fn generate_macos_icns() -> Result<()> {
     let root = repo_root()?;
+    let sh = Shell::new()?;
     let master = root.join("design/icon/openlogi.png");
     let output_dir = root.join("crates/openlogi-gui/icon");
     let output = output_dir.join("AppIcon.icns");
@@ -67,22 +65,14 @@ pub(crate) fn generate_macos_icns() -> Result<()> {
     // iconset slot is just a sips downscale. sips and iconutil are macOS
     // built-ins — no SVG renderer (rsvg/resvg) needed.
     render_iconset(&iconset, |size, output| {
-        run(ProcessCommand::new("sips")
-            .arg("-z")
-            .arg(size.to_string())
-            .arg(size.to_string())
-            .arg(&master)
-            .arg("--out")
-            .arg(output)
-            .stdout(Stdio::null()))
+        let size = size.to_string();
+        cmd!(sh, "sips -z {size} {size} {master} --out {output}")
+            .ignore_stdout()
+            .run()?;
+        Ok(())
     })?;
 
-    run(ProcessCommand::new("iconutil")
-        .arg("-c")
-        .arg("icns")
-        .arg(&iconset)
-        .arg("-o")
-        .arg(&output))?;
+    cmd!(sh, "iconutil -c icns {iconset} -o {output}").run()?;
     println!("wrote {}", output.display());
     Ok(())
 }
@@ -103,6 +93,8 @@ where
 
 pub(crate) fn bundle_macos() -> Result<()> {
     let root = repo_root()?;
+    let sh = Shell::new()?;
+    let _repo = sh.push_dir(&root);
     let xcode_env = xcode_env()?;
 
     println!("==> app icon");
@@ -110,18 +102,9 @@ pub(crate) fn bundle_macos() -> Result<()> {
 
     if env::var("OPENLOGI_BUNDLE_ASSETS").as_deref() == Ok("1") {
         println!("==> device assets: bundling (offline build)");
-        run(with_env(
-            ProcessCommand::new("cargo")
-                .arg("run")
-                .arg("-p")
-                .arg("openlogi")
-                .arg("--release")
-                .arg("--")
-                .arg("assets")
-                .arg("sync")
-                .current_dir(&root),
-            &xcode_env,
-        ))?;
+        cmd!(sh, "cargo run -p openlogi --release -- assets sync")
+            .envs(xcode_env.iter().map(|(key, value)| (key, value)))
+            .run()?;
     } else {
         println!("==> device assets: on-demand (not bundled; fetched at first launch)");
         let assets = root.join("crates/openlogi-gui/assets");
@@ -135,21 +118,18 @@ pub(crate) fn bundle_macos() -> Result<()> {
 
     println!("==> bundle (.app)");
     if !command_exists("cargo-bundle") {
-        let mut install = ProcessCommand::new("cargo");
-        install
-            .arg("install")
-            .arg("cargo-bundle")
-            .arg("--locked")
-            .env("CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER", "/usr/bin/cc");
-        run(with_env(&mut install, &xcode_env))?;
+        cmd!(sh, "cargo install cargo-bundle --locked")
+            .env("CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER", "/usr/bin/cc")
+            .envs(xcode_env.iter().map(|(key, value)| (key, value)))
+            .run()?;
     }
-    run(with_env(
-        ProcessCommand::new("cargo")
-            .arg("bundle")
-            .arg("--release")
-            .current_dir(root.join("crates/openlogi-gui")),
-        &xcode_env,
-    ))?;
+    {
+        let gui_dir = root.join("crates/openlogi-gui");
+        let _gui = sh.push_dir(gui_dir);
+        cmd!(sh, "cargo bundle --release")
+            .envs(xcode_env.iter().map(|(key, value)| (key, value)))
+            .run()?;
+    }
 
     let app = root.join("target/release/bundle/osx/OpenLogi.app");
     ensure_dir(&app)?;
@@ -166,16 +146,12 @@ pub(crate) fn bundle_macos() -> Result<()> {
 /// from the agent's menu, and gives the agent a stable signed identity so its
 /// Accessibility (TCC) grant survives app updates.
 fn embed_agent_helper(root: &Path, app: &Path, xcode_env: &[(String, String)]) -> Result<()> {
+    let sh = Shell::new()?;
+    let _repo = sh.push_dir(root);
     println!("==> agent helper (build)");
-    run(with_env(
-        ProcessCommand::new("cargo")
-            .arg("build")
-            .arg("-p")
-            .arg("openlogi-agent")
-            .arg("--release")
-            .current_dir(root),
-        xcode_env,
-    ))?;
+    cmd!(sh, "cargo build -p openlogi-agent --release")
+        .envs(xcode_env.iter().map(|(key, value)| (key, value)))
+        .run()?;
     let agent_bin = root.join("target/release/openlogi-agent");
     ensure_file(&agent_bin)?;
 
@@ -205,13 +181,13 @@ fn embed_agent_helper(root: &Path, app: &Path, xcode_env: &[(String, String)]) -
     // The template ships the 0.0.0 dev version (the hand-bundled dev flow
     // copies it verbatim); stamp the workspace version (= xtask's own,
     // inherited) over it so Finder and update scanners see the real one.
+    let version = env!("CARGO_PKG_VERSION");
     for key in ["CFBundleShortVersionString", "CFBundleVersion"] {
-        run(ProcessCommand::new("/usr/bin/plutil")
-            .arg("-replace")
-            .arg(key)
-            .arg("-string")
-            .arg(env!("CARGO_PKG_VERSION"))
-            .arg(&info_dst))?;
+        cmd!(
+            sh,
+            "/usr/bin/plutil -replace {key} -string {version} {info_dst}"
+        )
+        .run()?;
     }
 
     println!("    embedded {}", helper.display());
@@ -219,15 +195,12 @@ fn embed_agent_helper(root: &Path, app: &Path, xcode_env: &[(String, String)]) -
 }
 
 fn xcode_env() -> Result<Vec<(String, String)>> {
+    let sh = Shell::new()?;
     let developer_dir = env::var("OPENLOGI_DEVELOPER_DIR")
         .unwrap_or_else(|_| "/Applications/Xcode.app/Contents/Developer".to_string());
-    let sdkroot = command_stdout(
-        ProcessCommand::new("/usr/bin/xcrun")
-            .arg("--sdk")
-            .arg("macosx")
-            .arg("--show-sdk-path")
-            .env("DEVELOPER_DIR", &developer_dir),
-    )?;
+    let sdkroot = cmd!(sh, "/usr/bin/xcrun --sdk macosx --show-sdk-path")
+        .env("DEVELOPER_DIR", &developer_dir)
+        .read()?;
     Ok(vec![
         ("DEVELOPER_DIR".to_string(), developer_dir),
         ("SDKROOT".to_string(), sdkroot.trim().to_string()),
@@ -236,6 +209,8 @@ fn xcode_env() -> Result<Vec<(String, String)>> {
 
 pub(crate) fn dmg_macos(args: &DmgMacos) -> Result<()> {
     let root = repo_root()?;
+    let sh = Shell::new()?;
+    let _repo = sh.push_dir(&root);
     let app = absolutize(&root, &args.app);
     let output = absolutize(&root, &args.output);
     ensure_dir(&app)?;
@@ -247,17 +222,15 @@ pub(crate) fn dmg_macos(args: &DmgMacos) -> Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("could not create {}", parent.display()))?;
     }
-    run(ProcessCommand::new("curl")
-        .arg("-fsSL")
-        .arg(&args.background_url)
-        .arg("-o")
-        .arg(&background))
-    .with_context(|| {
-        format!(
-            "failed to fetch DMG background from {}",
-            args.background_url
-        )
-    })?;
+    let background_url = &args.background_url;
+    cmd!(sh, "curl -fsSL {background_url} -o {background}")
+        .run()
+        .with_context(|| {
+            format!(
+                "failed to fetch DMG background from {}",
+                args.background_url
+            )
+        })?;
 
     println!("==> dmg");
     if output.exists() {
@@ -270,32 +243,11 @@ pub(crate) fn dmg_macos(args: &DmgMacos) -> Result<()> {
     // coordinates relative to the 760×480 content area.
     // ULMO (LZMA) compresses ~20% smaller than the default UDZO (zlib) and
     // mounts on macOS 10.15+, well under the bundle's 13.0 floor.
-    run(ProcessCommand::new("create-dmg")
-        .arg("--format")
-        .arg("ULMO")
-        .arg("--volname")
-        .arg("OpenLogi")
-        .arg("--background")
-        .arg(&background)
-        .arg("--window-pos")
-        .arg("240")
-        .arg("120")
-        .arg("--window-size")
-        .arg("760")
-        .arg("512")
-        .arg("--icon-size")
-        .arg("128")
-        .arg("--icon")
-        .arg("OpenLogi.app")
-        .arg("212")
-        .arg("250")
-        .arg("--app-drop-link")
-        .arg("548")
-        .arg("250")
-        .arg("--hide-extension")
-        .arg("OpenLogi.app")
-        .arg(&output)
-        .arg(&app))?;
+    cmd!(
+        sh,
+        "create-dmg --format ULMO --volname OpenLogi --background {background} --window-pos 240 120 --window-size 760 512 --icon-size 128 --icon OpenLogi.app 212 250 --app-drop-link 548 250 --hide-extension OpenLogi.app {output} {app}"
+    )
+    .run()?;
 
     if let Some(identity) = &args.sign_identity {
         sign_dmg(identity, &output)?;
@@ -307,6 +259,7 @@ pub(crate) fn dmg_macos(args: &DmgMacos) -> Result<()> {
 }
 
 fn sign_app(identity: &str) -> Result<()> {
+    let sh = Shell::new()?;
     let app = repo_root()?.join("target/release/bundle/osx/OpenLogi.app");
     let helper = app.join("Contents/Library/LoginItems/OpenLogiAgent.app");
     println!("==> codesign ({identity})");
@@ -319,41 +272,28 @@ fn sign_app(identity: &str) -> Result<()> {
         codesign_runtime(identity, &helper)?;
     }
     codesign_runtime(identity, &app)?;
-    run(ProcessCommand::new("codesign")
-        .arg("--verify")
-        .arg("--strict")
-        .arg(&app))?;
+    cmd!(sh, "codesign --verify --strict {app}").run()?;
     if helper.exists() {
-        run(ProcessCommand::new("codesign")
-            .arg("--verify")
-            .arg("--strict")
-            .arg(&helper))?;
+        cmd!(sh, "codesign --verify --strict {helper}").run()?;
     }
     Ok(())
 }
 
 /// Sign one bundle with the hardened runtime + a secure timestamp.
 fn codesign_runtime(identity: &str, target: &Path) -> Result<()> {
-    run(ProcessCommand::new("codesign")
-        .arg("--force")
-        .arg("--options")
-        .arg("runtime")
-        .arg("--timestamp")
-        .arg("--sign")
-        .arg(identity)
-        .arg(target))
+    let sh = Shell::new()?;
+    cmd!(
+        sh,
+        "codesign --force --options runtime --timestamp --sign {identity} {target}"
+    )
+    .run()?;
+    Ok(())
 }
 
 fn sign_dmg(identity: &str, dmg: &Path) -> Result<()> {
+    let sh = Shell::new()?;
     println!("==> codesign dmg ({identity})");
-    run(ProcessCommand::new("codesign")
-        .arg("--force")
-        .arg("--timestamp")
-        .arg("--sign")
-        .arg(identity)
-        .arg(dmg))?;
-    run(ProcessCommand::new("codesign")
-        .arg("--verify")
-        .arg("--verbose=2")
-        .arg(dmg))
+    cmd!(sh, "codesign --force --timestamp --sign {identity} {dmg}").run()?;
+    cmd!(sh, "codesign --verify --verbose=2 {dmg}").run()?;
+    Ok(())
 }

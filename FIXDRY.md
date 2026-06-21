@@ -13,7 +13,7 @@ This file tracks places where OpenLogi carries general-purpose infrastructure co
 
 - [x] Replace `openlogi-assets::http::write_replace` with `atomic-write-file`, preserving atomic replacement and symlink safety.
 - [x] Replace recursive asset-cache directory walking with `walkdir`.
-- [x] Replace `xtask` command status/output checking and display/quoting with `command-error`.
+- [x] Replace `xtask` command orchestration with `xshell`.
 - [x] Replace stale-agent process discovery/signalling through `pgrep`/`kill` with `sysinfo`.
 
 ## Needs behavior tests before replacing
