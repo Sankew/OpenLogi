@@ -25,6 +25,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util"] }
 futures = "0.3"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }
 
 # Menu-bar status item (NSStatusItem) — the agent hosts the tray now. objc2
 # gives Retained<T>-owned AppKit bindings (no #99-style leaks); versions match
