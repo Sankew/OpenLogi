@@ -17,12 +17,12 @@ This file tracks places where OpenLogi carries general-purpose infrastructure co
 
 ## Needs behavior tests before replacing
 
-- [ ] Evaluate `etcetera` for XDG-style config/data/runtime paths. Do not switch to platform-native macOS paths; OpenLogi intentionally uses XDG on every platform.
-- [ ] Evaluate `single-instance` as a replacement for the small `fs4`-based single-instance wrapper only if it preserves per-role lock names and error semantics.
-- [ ] Evaluate `unic-langid` + `fluent-langneg` for locale matching, while keeping OpenLogi's shipped-locale policy for Chinese, Portuguese, and Norwegian variants.
+- [x] Evaluate `etcetera` for XDG-style config/data/runtime paths. Adopted `etcetera::base_strategy::Xdg`, not platform-native macOS paths.
+- [x] Evaluate `fluent-langneg` for locale matching, while keeping OpenLogi's shipped-locale policy for Chinese, Portuguese, and Norwegian variants.
 
 ## Keep custom for now
 
+- `openlogi-core::single_instance`: `single-instance` uses different backends (for example abstract Unix sockets on Linux) and does not preserve OpenLogi's data-dir lock-file path, per-role names, and error classification closely enough to be a safe deletion.
 - `openlogi-hook`: event suppression/rewriting and foreground-app lookup are OpenLogi-specific and not covered cleanly by generic input crates.
 - `openlogi-inject`: platform-specific action synthesis may overlap with `enigo`, but current semantics are narrower and more controlled.
 - `openlogi-hid` / vendored `openlogi-hidpp`: the right path is upstreaming OpenLogi-specific fixes, not replacing the fork blindly.

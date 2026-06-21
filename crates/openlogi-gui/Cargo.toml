@@ -44,6 +44,7 @@ gpui-updater = { git = "https://github.com/AprilNEA/gpui-updater", tag = "v0.0.5
 disclaim = "0.1"
 url = "2.5.8"
 walkdir = "2.5.0"
+fluent-langneg = "0.14.2"
 
 # Menu-bar (NSStatusItem) FFI — GPUI has no status-bar API. objc2 gives typed,
 # `Retained<T>`-owned AppKit bindings so the status-item code can't leak (#99).
