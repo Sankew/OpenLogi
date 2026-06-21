@@ -21,6 +21,7 @@ use openlogi_core::device::{
 };
 use openlogi_hid::DeviceRoute;
 use tracing::info;
+use url::Url;
 
 use openlogi_agent_core::ipc::InventoryHealth;
 
@@ -1144,8 +1145,10 @@ fn configuration_card(pal: Palette, cx: &mut Context<AppView>) -> impl IntoEleme
                     tr!("Config folder"),
                     pal,
                     |_event, _window, cx| {
-                        if let Ok(path) = openlogi_core::paths::config_dir() {
-                            cx.open_url(&file_url(&path));
+                        if let Ok(path) = openlogi_core::paths::config_dir()
+                            && let Some(url) = file_url(&path)
+                        {
+                            cx.open_url(&url);
                         }
                     },
                 )),
@@ -1353,8 +1356,8 @@ fn relative_percent(value: u8) -> gpui::DefiniteLength {
     relative(f32::from(value.clamp(1, 100)) / 100.)
 }
 
-fn file_url(path: &std::path::Path) -> String {
-    format!("file://{}", path.to_string_lossy().replace(' ', "%20"))
+fn file_url(path: &std::path::Path) -> Option<String> {
+    Url::from_file_path(path).ok().map(Into::into)
 }
 
 /// Centered spinner over a muted one-line caption — the quiet "still working"

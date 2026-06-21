@@ -1,9 +1,6 @@
-use std::env;
 use std::ffi::OsStr;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result, bail};
 
@@ -67,12 +64,7 @@ pub(crate) fn with_env<'a>(
 }
 
 pub(crate) fn command_exists(name: &str) -> bool {
-    env::var_os("PATH").is_some_and(|path| {
-        env::split_paths(&path).any(|dir| {
-            let candidate = dir.join(name);
-            candidate.is_file() || candidate.exists()
-        })
-    })
+    which::which(name).is_ok()
 }
 
 pub(crate) fn ensure_command(name: &str) -> Result<()> {
@@ -104,32 +96,5 @@ pub(crate) fn absolutize(root: &Path, path: &Path) -> PathBuf {
         path.to_path_buf()
     } else {
         root.join(path)
-    }
-}
-
-pub(crate) struct TempDir {
-    path: PathBuf,
-}
-
-impl TempDir {
-    pub(crate) fn new(prefix: &str) -> Result<Self> {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .context("system clock is before Unix epoch")?
-            .as_nanos();
-        let path = env::temp_dir().join(format!("{prefix}-{}-{nanos}", std::process::id()));
-        fs::create_dir_all(&path)
-            .with_context(|| format!("could not create temp directory {}", path.display()))?;
-        Ok(Self { path })
-    }
-
-    pub(crate) fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _cleanup_result = fs::remove_dir_all(&self.path);
     }
 }

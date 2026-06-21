@@ -15,7 +15,9 @@ clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+tempfile = "3.27.0"
 time = { version = "0.3", features = ["formatting"] }
+which = "8.0.4"
 
 [lints]
 workspace = true

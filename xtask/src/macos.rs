@@ -7,8 +7,8 @@ use anyhow::{Context as _, Result};
 use clap::Parser;
 
 use crate::util::{
-    TempDir, absolutize, command_exists, command_stdout, ensure_command, ensure_dir, ensure_file,
-    repo_root, run, with_env,
+    absolutize, command_exists, command_stdout, ensure_command, ensure_dir, ensure_file, repo_root,
+    run, with_env,
 };
 
 #[derive(Parser)]
@@ -55,7 +55,10 @@ pub(crate) fn generate_macos_icns() -> Result<()> {
         )
     })?;
 
-    let work = TempDir::new("openlogi-icns")?;
+    let work = tempfile::Builder::new()
+        .prefix("openlogi-icns-")
+        .tempdir()
+        .context("could not create temporary iconset directory")?;
     let iconset = work.path().join("AppIcon.iconset");
     fs::create_dir_all(&iconset)
         .with_context(|| format!("could not create iconset directory {}", iconset.display()))?;
