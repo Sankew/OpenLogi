@@ -1,8 +1,8 @@
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
 use anyhow::{Context as _, Result, bail};
+use command_error::CommandExt;
 
 pub(crate) fn repo_root() -> Result<PathBuf> {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -12,45 +12,12 @@ pub(crate) fn repo_root() -> Result<PathBuf> {
 }
 
 pub(crate) fn run(command: &mut ProcessCommand) -> Result<()> {
-    let status = command
-        .status()
-        .with_context(|| format!("could not run {}", display_command(command)))?;
-    if status.success() {
-        Ok(())
-    } else {
-        bail!("{} failed with {status}", display_command(command));
-    }
+    command.status_checked()?;
+    Ok(())
 }
 
 pub(crate) fn command_stdout(command: &mut ProcessCommand) -> Result<String> {
-    let output = command
-        .output()
-        .with_context(|| format!("could not run {}", display_command(command)))?;
-    if !output.status.success() {
-        bail!("{} failed with {}", display_command(command), output.status);
-    }
-    String::from_utf8(output.stdout).context("command output was not valid UTF-8")
-}
-
-fn display_command(command: &ProcessCommand) -> String {
-    let mut text = command.get_program().to_string_lossy().into_owned();
-    for arg in command.get_args() {
-        text.push(' ');
-        text.push_str(&shell_quote(arg));
-    }
-    text
-}
-
-fn shell_quote(arg: &OsStr) -> String {
-    let text = arg.to_string_lossy();
-    if text
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-' | ':' | '='))
-    {
-        text.into_owned()
-    } else {
-        format!("'{escaped}'", escaped = text.replace('\'', "'\\''"))
-    }
+    Ok(command.output_checked_utf8()?.stdout)
 }
 
 pub(crate) fn with_env<'a>(
