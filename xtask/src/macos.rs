@@ -156,7 +156,7 @@ fn embed_agent_helper(root: &Path, app: &Path, xcode_env: &[(String, String)]) -
         .with_context(|| format!("could not create {}", helper_macos.display()))?;
     fs_err::copy(&agent_bin, helper_macos.join("openlogi-agent"))
         .with_context(|| "could not copy the agent binary into the helper bundle".to_string())?;
-    let info_src = root.join("crates/openlogi-agent/macos/Info.plist");
+    let info_src = root.join("crates/openlogi-gui/bundle/agent-release/Info.plist");
     ensure_file(&info_src)?;
     let info_dst = helper.join("Contents/Info.plist");
     fs_err::copy(&info_src, &info_dst)
@@ -173,9 +173,9 @@ fn embed_agent_helper(root: &Path, app: &Path, xcode_env: &[(String, String)]) -
         .with_context(|| format!("could not create {}", resources.display()))?;
     fs_err::copy(&icon_src, resources.join("AppIcon.icns"))
         .with_context(|| "could not copy the app icon into the helper bundle".to_string())?;
-    // The template ships the 0.0.0 dev version (the hand-bundled dev flow
-    // copies it verbatim); stamp the workspace version (= xtask's own,
-    // inherited) over it so Finder and update scanners see the real one.
+    // The template ships the 0.0.0 sentinel; stamp the workspace version
+    // (= xtask's own, inherited) over it so Finder and update scanners see the
+    // real one.
     let version = env!("CARGO_PKG_VERSION");
     for key in ["CFBundleShortVersionString", "CFBundleVersion"] {
         cmd!(

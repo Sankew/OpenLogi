@@ -531,7 +531,7 @@ fn launch_agent(path: &std::path::Path) -> std::io::Result<()> {
     disclaim::Command::new(path).spawn().map(|_| ())
 }
 
-/// The `OpenLogiAgent.app` root of a packaged helper binary, `None` for a bare dev binary.
+/// The `.app` root of a packaged helper binary, `None` for a bare dev binary.
 #[cfg(target_os = "macos")]
 fn helper_bundle(path: &std::path::Path) -> Option<&std::path::Path> {
     let bundle = path.ancestors().nth(3)?;
@@ -553,6 +553,15 @@ mod tests {
             helper_bundle(packaged),
             Some(Path::new(
                 "/Applications/OpenLogi.app/Contents/Library/LoginItems/OpenLogiAgent.app"
+            ))
+        );
+        let dev = Path::new(
+            "/Users/me/OpenLogi/target/dev/OpenLogi.app/Contents/Library/LoginItems/OpenLogi Agent.app/Contents/MacOS/openlogi-agent",
+        );
+        assert_eq!(
+            helper_bundle(dev),
+            Some(Path::new(
+                "/Users/me/OpenLogi/target/dev/OpenLogi.app/Contents/Library/LoginItems/OpenLogi Agent.app"
             ))
         );
         assert_eq!(
@@ -578,12 +587,21 @@ fn agent_binary_path() -> Option<PathBuf> {
     }
     // Packaged: …/OpenLogi.app/Contents/MacOS/openlogi-gui → the helper at
     // …/OpenLogi.app/Contents/Library/LoginItems/OpenLogiAgent.app/Contents/MacOS/openlogi-agent
+    // Dev uses a spaced bundle path so macOS privacy panes never fall back to
+    // displaying the old path-derived `OpenLogiAgent` name when metadata is stale.
     #[cfg(target_os = "macos")]
     {
-        let helper = dir
-            .parent()?
-            .join("Library/LoginItems/OpenLogiAgent.app/Contents/MacOS/openlogi-agent");
-        helper.exists().then_some(helper)
+        let contents = dir.parent()?;
+        for relative in [
+            "Library/LoginItems/OpenLogi Agent.app/Contents/MacOS/openlogi-agent",
+            "Library/LoginItems/OpenLogiAgent.app/Contents/MacOS/openlogi-agent",
+        ] {
+            let helper = contents.join(relative);
+            if helper.exists() {
+                return Some(helper);
+            }
+        }
+        None
     }
     #[cfg(not(target_os = "macos"))]
     None
