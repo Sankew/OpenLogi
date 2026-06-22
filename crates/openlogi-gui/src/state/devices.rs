@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use openlogi_agent_core::device_order::DeviceStableId;
 use openlogi_core::config::{Config, DeviceIdentity};
 use openlogi_core::device::{
-    BatteryInfo, Capabilities, DeviceInventory, DeviceKind, DeviceModelInfo,
+    BatteryInfo, Capabilities, DeviceInventory, DeviceKind, DeviceModelInfo, DeviceTransports,
 };
 use openlogi_hid::DeviceRoute;
 use tracing::debug;
@@ -138,15 +138,26 @@ fn append_offline_known<'a>(
     known: impl Iterator<Item = (&'a str, &'a DeviceIdentity)>,
     cache: &AssetResolver,
 ) {
-    let present: HashSet<&str> = list.iter().map(|r| r.config_key.as_str()).collect();
-    // Collect before extending: `present` borrows `list`, so the phantoms must
-    // be materialized before we can mutate it.
-    let phantoms: Vec<DeviceRecord> = known
-        .filter(|(key, _)| !present.contains(key))
-        .map(|(key, identity)| offline_record(key, identity, cache))
+    let mut blocked_keys: HashSet<String> = list
+        .iter()
+        .flat_map(|r| [r.config_key.clone(), r.model_key.clone()])
         .collect();
-    drop(present);
-    list.extend(phantoms);
+    let mut known = known.collect::<Vec<_>>();
+    known.sort_by_key(|(key, identity)| (identity.model_info.is_none(), (*key).to_string()));
+
+    for (key, identity) in known {
+        let model_key = identity
+            .model_info
+            .as_ref()
+            .map_or_else(|| key.to_string(), DeviceModelInfo::config_key);
+        if blocked_keys.contains(key) || blocked_keys.contains(&model_key) {
+            continue;
+        }
+        let record = offline_record(key, identity, cache);
+        blocked_keys.insert(record.config_key.clone());
+        blocked_keys.insert(record.model_key.clone());
+        list.push(record);
+    }
 }
 
 /// Synthesize an offline placeholder from a persisted [`DeviceIdentity`].
@@ -162,7 +173,10 @@ fn offline_record(
     identity: &DeviceIdentity,
     cache: &AssetResolver,
 ) -> DeviceRecord {
-    let model_info = identity.model_info.clone();
+    let model_info = identity
+        .model_info
+        .clone()
+        .or_else(|| model_info_from_legacy_model_key(config_key));
     let asset = model_info
         .as_ref()
         .and_then(|model| cache.resolve(model, identity.codename.as_deref()));
@@ -185,6 +199,22 @@ fn offline_record(
         online: false,
         battery: None,
     }
+}
+
+fn model_info_from_legacy_model_key(key: &str) -> Option<DeviceModelInfo> {
+    if key.len() <= 4 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let split = key.len() - 4;
+    let (ext, pid) = key.split_at(split);
+    Some(DeviceModelInfo {
+        entity_count: 0,
+        serial_number: None,
+        unit_id: [0; 4],
+        transports: DeviceTransports::default(),
+        model_ids: [u16::from_str_radix(pid, 16).ok()?, 0, 0],
+        extended_model_id: u8::from_str_radix(ext, 16).ok()?,
+    })
 }
 
 /// Order the carousel by physical route. HID enumeration order can change as
