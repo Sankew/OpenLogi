@@ -19,6 +19,8 @@
 #
 # Set OPENLOGI_DEV_BUNDLE=0 to skip the wrapper and run the raw binary.
 # Set OPENLOGI_DEV_CODESIGN=0 to skip dev codesigning.
+# Set OPENLOGI_ALLOW_EXTERNAL_AGENT=1 to let the dev GUI connect to an
+# already-running agent outside this checkout (normally a production install).
 set -euo pipefail
 
 bin="$1"
@@ -37,7 +39,51 @@ PLIST_SRC="$ROOT/crates/openlogi-gui/bundle/gui-dev/Info.plist"
 AGENT_PLIST_SRC="$ROOT/crates/openlogi-gui/bundle/agent-dev/Info.plist"
 CODESIGN_ENABLED="${OPENLOGI_DEV_CODESIGN:-1}"
 
+check_external_agent() {
+  if [ "${OPENLOGI_ALLOW_EXTERNAL_AGENT:-0}" = "1" ]; then
+    return 0
+  fi
+  local found=0
+  local pid path
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    path="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
+    [ -n "$path" ] || continue
+    case "$path" in
+      "$APP/Contents/Library/LoginItems/OpenLogi Agent.app/Contents/MacOS/openlogi-agent"|\
+      "$ROOT"/target/*/openlogi-agent)
+        ;;
+      *)
+        if [ "$found" = "0" ]; then
+          cat >&2 <<EOF
+error: an external openlogi-agent is already running.
+
+The dev GUI would connect to that agent instead of the freshly built dev agent,
+which makes GUI+Agent testing misleading. Stop the production agent first, e.g.:
+
+  launchctl bootout "gui/$(id -u)/org.openlogi.agent" 2>/dev/null || true
+  pkill -x openlogi-agent 2>/dev/null || true
+
+Running external agent(s):
+EOF
+        fi
+        printf '  pid %s: %s\n' "$pid" "$path" >&2
+        found=1
+        ;;
+    esac
+  done < <(pgrep -x openlogi-agent 2>/dev/null || true)
+
+  if [ "$found" != "0" ]; then
+    cat >&2 <<EOF
+
+If this is intentional, rerun with OPENLOGI_ALLOW_EXTERNAL_AGENT=1.
+EOF
+    exit 1
+  fi
+}
+
 mkdir -p "$MACOS" "$RES"
+check_external_agent
 
 # App icon — generated from the master PNG on demand. Mirror it
 # into the bundle whenever the source is newer (or the bundle copy is missing).
