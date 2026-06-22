@@ -15,9 +15,9 @@
 //! jumps straight from *searching* to *paired*.
 
 use gpui::{
-    App, Context, FontWeight, Global, InteractiveElement, IntoElement, ParentElement as _, Render,
-    SharedString, Size, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div,
-    px, rgb,
+    App, Context, FocusHandle, FontWeight, Global, InteractiveElement, IntoElement,
+    ParentElement as _, Render, SharedString, Size, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window, div, px, rgb,
 };
 use gpui_component::v_flex;
 use openlogi_agent_core::ipc::{FoundDevice, PairingFailure, PairingUpdate};
@@ -139,6 +139,7 @@ fn start_search(cx: &mut App) {
 
 /// Standalone Add Device window root view.
 pub struct AddDeviceView {
+    focus_handle: FocusHandle,
     #[allow(dead_code, reason = "held to keep the appearance observer alive")]
     appearance_obs: Option<Subscription>,
     #[allow(dead_code, reason = "held to keep the PairingUi observer alive")]
@@ -146,9 +147,12 @@ pub struct AddDeviceView {
 }
 
 impl AddDeviceView {
-    fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let focus_handle = cx.focus_handle();
+        focus_handle.focus(window, cx);
         let state_obs = cx.observe_global::<PairingUi>(|_, cx| cx.notify());
         Self {
+            focus_handle,
             appearance_obs: None,
             state_obs,
         }
@@ -170,6 +174,7 @@ impl Render for AddDeviceView {
             .size_full()
             .bg(pal.bg)
             .text_color(pal.text_primary)
+            .track_focus(&self.focus_handle)
             .on_action(|_: &CloseWindow, window, _| window.remove_window())
             .on_action(|_: &Minimize, window, _| window.minimize_window())
             .on_action(|_: &Zoom, window, _| window.zoom_window())

@@ -585,7 +585,7 @@ fn open_main_window(inventories: &[DeviceInventory], cx: &mut gpui::App) {
     let opened = cx.open_window(options, |window, cx| {
         Theme::change(ThemeMode::from(window.appearance()), Some(window), cx);
 
-        let view = cx.new(|cx| AppView::new(inventories, cx));
+        let view = cx.new(|cx| AppView::new(inventories, window, cx));
 
         let appearance_obs = window.observe_window_appearance(|window, cx| {
             Theme::change(ThemeMode::from(window.appearance()), Some(window), cx);

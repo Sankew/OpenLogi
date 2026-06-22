@@ -6,7 +6,7 @@
 //! `img()` resolves it the same inside a packaged `.app` as in a dev build.
 
 use gpui::{
-    App, ClipboardItem, Context, Entity, FontWeight, InteractiveElement, IntoElement,
+    App, ClipboardItem, Context, Entity, FocusHandle, FontWeight, InteractiveElement, IntoElement,
     ParentElement as _, Render, Size, StatefulInteractiveElement as _, Styled as _, Subscription,
     Window, div, img, px,
 };
@@ -21,6 +21,7 @@ use crate::windows::{self, AuxWindow};
 
 /// Standalone About window root view.
 pub struct AboutView {
+    focus_handle: FocusHandle,
     #[allow(dead_code, reason = "held to keep the appearance observer alive")]
     appearance_obs: Option<Subscription>,
     updater: Entity<Updater>,
@@ -33,7 +34,9 @@ pub struct AboutView {
 }
 
 impl AboutView {
-    fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let focus_handle = cx.focus_handle();
+        focus_handle.focus(window, cx);
         // Reuse the app-wide shared updater installed at launch, so a launch-time
         // check result is already visible here. Fall back to a fresh one if it
         // somehow wasn't installed.
@@ -43,6 +46,7 @@ impl AboutView {
         };
         let updater_obs = cx.observe(&updater, |_, _, cx| cx.notify());
         Self {
+            focus_handle,
             appearance_obs: None,
             updater,
             updater_obs,
@@ -190,6 +194,7 @@ impl Render for AboutView {
             .size_full()
             .bg(pal.bg)
             .text_color(pal.text_primary)
+            .track_focus(&self.focus_handle)
             .on_action(|_: &CloseWindow, window, _| window.remove_window())
             .on_action(|_: &Minimize, window, _| window.minimize_window())
             .on_action(|_: &Zoom, window, _| window.zoom_window())

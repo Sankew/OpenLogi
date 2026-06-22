@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use gpui::{
     AnyElement, App, AppContext as _, BorrowAppContext as _, Bounds, BoxShadow, Context, Div,
-    Entity, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window, canvas, div, fill, img, point,
-    prelude::FluentBuilder as _, px, relative, rgb,
+    Entity, FocusHandle, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Render,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window, canvas, div, fill,
+    img, point, prelude::FluentBuilder as _, px, relative, rgb,
 };
 use gpui_component::{
     Icon, IconName, Sizable as _,
@@ -131,6 +131,7 @@ impl DetailTab {
 
 /// Root application view.
 pub struct AppView {
+    focus_handle: FocusHandle,
     route: Route,
     mouse_model: Entity<MouseModelView>,
     dpi_panel: Entity<DpiPanel>,
@@ -149,8 +150,14 @@ pub struct AppView {
 
 impl AppView {
     /// Construct the root view and its child entities.
-    pub fn new(_inventories: &[DeviceInventory], cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        _inventories: &[DeviceInventory],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let cache = AssetResolver::new();
+        let focus_handle = cx.focus_handle();
+        focus_handle.focus(window, cx);
         // `AppState` is installed as a global by `main` (with the IPC command
         // sender) before any window opens; downstream reads use `try_global`
         // and tolerate its absence, so there's no fallback construction here.
@@ -176,6 +183,7 @@ impl AppView {
         let lighting_panel = cx.new(LightingPanel::new);
         let state_obs = cx.observe_global::<AppState>(|_, cx| cx.notify());
         Self {
+            focus_handle,
             route: Route::Home,
             mouse_model,
             dpi_panel,
@@ -330,6 +338,7 @@ impl Render for AppView {
             .size_full()
             .bg(pal.bg)
             .text_color(pal.text_primary)
+            .track_focus(&self.focus_handle)
             .on_action(|_: &CloseWindow, window, _| window.remove_window())
             .on_action(|_: &Minimize, window, _| window.minimize_window())
             .on_action(|_: &Zoom, window, _| window.zoom_window());
