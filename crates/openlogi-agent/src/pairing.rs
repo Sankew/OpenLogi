@@ -257,7 +257,6 @@ mod tests {
 
     use std::collections::BTreeMap;
     use std::sync::RwLock;
-    use std::sync::atomic::AtomicBool;
 
     use openlogi_agent_core::DpiCycleState;
     use openlogi_agent_core::hook_runtime::HookMaps;
