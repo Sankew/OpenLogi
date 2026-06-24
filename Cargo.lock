@@ -9239,6 +9239,7 @@ dependencies = [
  "icns",
  "image",
  "path-absolutize",
+ "plist",
  "serde",
  "serde_json",
  "sha2_hasher",
