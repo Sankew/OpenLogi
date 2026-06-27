@@ -275,7 +275,7 @@ pub struct AppState {
     pub button_bindings: BTreeMap<ButtonId, Action>,
     /// Per-direction sub-bindings for the current device's gesture owner. Edited
     /// via the gesture picker and persisted as a [`Binding::Gesture`] entry under
-    /// the owning button — the thumb pad ([`ButtonId::GestureButton`]) by default,
+    /// the owning button — the HID++ gesture button ([`ButtonId::GestureButton`]) by default,
     /// or a promoted Middle/Back/Forward — in the device's unified binding map
     /// ([`DeviceConfig::bindings`]). Rebuilt by the `gesture_bindings_for_current` helper.
     ///
@@ -1192,7 +1192,7 @@ impl AppState {
             return BTreeMap::new();
         };
         match self.config.gesture_owner(key) {
-            // The dedicated thumb pad seeds every direction from the defaults.
+            // The HID++ gesture button seeds every direction from the defaults.
             Some(ButtonId::GestureButton) => gesture_bindings_for(&self.config, Some(key)),
             // A promoted OS-hook button is shown from its raw stored map (which
             // `set_gesture_owner` seeds with full defaults), so the menu matches
@@ -1245,9 +1245,9 @@ impl AppState {
             );
             return;
         };
-        // Edit whichever button owns gestures — not always the thumb pad. When
+        // Edit whichever button owns gestures — not always the HID++ gesture button. When
         // gestures are off, a stray edit must NOT silently re-enable them on the
-        // thumb pad (the gesture editor shouldn't be reachable in that state):
+        // default owner (the gesture editor shouldn't be reachable in that state):
         // no-op instead.
         let Some(owner) = self.config.gesture_owner(&key) else {
             debug!(

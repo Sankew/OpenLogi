@@ -35,7 +35,7 @@ pub enum ButtonId {
     ThumbwheelScrollUp,
     /// Rotating the thumb wheel "down" (negative rotation).
     ThumbwheelScrollDown,
-    /// The thumb-pad gesture button on MX-line devices. The press itself
+    /// The HID++ gesture button on MX-line devices. The press itself
     /// fires the bound action; swipe directions are P1.5 territory.
     GestureButton,
 }
