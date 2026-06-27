@@ -53,7 +53,9 @@ const RECEIVER_INDEX: u8 = 0xff;
 /// Receiver pairing family. Each uses a different register flow.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ReceiverFamily {
+    /// Logi Bolt receiver.
     Bolt,
+    /// Logitech Unifying receiver.
     Unifying,
 }
 
@@ -72,7 +74,9 @@ fn family_for(product_id: u16) -> Option<ReceiverFamily> {
 pub struct PairingReceiver {
     /// Bolt unique ID, when readable. `None` for Unifying (no read path yet).
     pub uid: Option<String>,
+    /// Receiver protocol family.
     pub family: ReceiverFamily,
+    /// USB product ID of the receiver.
     pub product_id: u16,
 }
 
@@ -96,7 +100,9 @@ pub struct DiscoveredDevice {
     pub address: [u8; 6],
     /// Authentication-method bitfield (bit 0 = passkey typed on keyboard).
     pub authentication: u8,
+    /// Device class reported by the receiver discovery notification.
     pub kind: BoltDeviceKind,
+    /// Human-readable name advertised by the discovered device.
     pub name: String,
 }
 
@@ -121,7 +127,9 @@ impl DiscoveredDevice {
 /// A single click in a pointer passkey sequence.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Click {
+    /// Left mouse button click.
     Left,
+    /// Right mouse button click.
     Right,
 }
 
@@ -137,7 +145,12 @@ pub enum PasskeyMethod {
     Keyboard(String),
     /// On the new pointer, perform this left/right click sequence, then click
     /// both buttons together.
-    Pointer { passkey: String, clicks: Vec<Click> },
+    Pointer {
+        /// Numeric passkey shown by the device.
+        passkey: String,
+        /// MSB-first click sequence derived from the passkey.
+        clicks: Vec<Click>,
+    },
 }
 
 /// Renders a Bolt passkey as a 10-bit MSB-first left/right click sequence.
@@ -164,8 +177,11 @@ pub enum PairingEvent {
     DeviceFound(DiscoveredDevice),
     /// Bolt only: the device asks the user to enter a passkey to authenticate.
     Passkey(PasskeyMethod),
-    /// A device was paired and assigned `slot`.
-    Paired { slot: u8 },
+    /// A device was paired and assigned a receiver slot.
+    Paired {
+        /// Assigned pairing slot.
+        slot: u8,
+    },
     /// The flow ended without pairing a device.
     Failed(PairingError),
 }
@@ -182,16 +198,22 @@ pub enum PairingCommand {
 /// Errors raised by pairing operations.
 #[derive(Clone, Debug, Error)]
 pub enum PairingError {
+    /// HID transport failure.
     #[error("HID transport error: {0}")]
     Hid(String),
+    /// No supported receiver matched the requested selector.
     #[error("no supported pairing-capable receiver found")]
     ReceiverNotFound,
+    /// HID++ receiver register read/write failed.
     #[error("receiver register access failed: {0}")]
     Register(String),
+    /// Pairing flow exceeded its timeout.
     #[error("pairing timed out")]
     Timeout,
+    /// Receiver reported a device-specific pairing error code.
     #[error("receiver reported pairing error {0:#04x}")]
     Device(u8),
+    /// Pairing flow was cancelled by the caller.
     #[error("pairing was cancelled")]
     Cancelled,
 }

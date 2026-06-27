@@ -166,11 +166,17 @@ pub struct TaskId(pub u16);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CidInfo {
+    /// Control ID.
     pub cid: ControlId,
+    /// Default task ID currently associated with the control.
     pub task_id: TaskId,
+    /// Capability and classification flags.
     pub flags: CidFlags,
+    /// Physical position value reported by the device.
     pub position: u8,
+    /// Control group number.
     pub group: u8,
+    /// Bit mask of groups this control belongs to.
     pub group_mask: GroupMask,
 }
 
@@ -192,17 +198,29 @@ bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
     #[cfg_attr(feature = "serde", derive(serde::Serialize))]
     pub struct CidFlags: u16 {
+        /// Control belongs to a mouse/pointer device.
         const MOUSE = 1 << 0;
+        /// Control is a keyboard function key.
         const FUNCTION_KEY = 1 << 1;
+        /// Control is a hotkey.
         const HOTKEY = 1 << 2;
+        /// Control toggles Fn behavior.
         const FN_TOGGLE = 1 << 3;
+        /// Control can be reprogrammed.
         const REPROGRAMMABLE = 1 << 4;
+        /// Control can be temporarily diverted to HID++ events.
         const DIVERTABLE = 1 << 5;
+        /// Control can be persistently diverted.
         const PERSISTENTLY_DIVERTABLE = 1 << 6;
+        /// Control is virtual rather than a physical input.
         const VIRTUAL_CONTROL = 1 << 7;
+        /// Control supports raw XY reporting.
         const RAW_XY = 1 << 8;
+        /// Control supports force raw XY reporting.
         const FORCE_RAW_XY = 1 << 9;
+        /// Control supports analytics key events.
         const ANALYTICS_KEY_EVENTS = 1 << 10;
+        /// Control supports raw wheel events.
         const RAW_WHEEL = 1 << 11;
     }
 }
@@ -277,13 +295,21 @@ pub struct GroupMask(pub u8);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CidReporting {
+    /// Control ID whose reporting state was read.
     pub cid: ControlId,
+    /// Whether temporary diversion is enabled.
     pub diverted: bool,
+    /// Whether persistent diversion is enabled.
     pub persistently_diverted: bool,
+    /// Whether force raw XY reporting is enabled.
     pub force_raw_xy: bool,
+    /// Whether raw XY reporting is enabled.
     pub raw_xy: bool,
+    /// Optional remapping target control ID.
     pub remap: Option<ControlId>,
+    /// Whether analytics key events are enabled.
     pub analytics_key_events: bool,
+    /// Whether raw wheel reporting is enabled.
     pub raw_wheel: bool,
 }
 
@@ -310,14 +336,20 @@ impl CidReporting {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CidReportingChange {
+    /// New temporary diversion state, or `None` to leave unchanged.
     pub diverted: Option<bool>,
+    /// New persistent diversion state, or `None` to leave unchanged.
     pub persistently_diverted: Option<bool>,
+    /// New force raw XY state, or `None` to leave unchanged.
     pub force_raw_xy: Option<bool>,
+    /// New raw XY state, or `None` to leave unchanged.
     pub raw_xy: Option<bool>,
     /// Remaps to another control ID. `None` sends the documented `0` value,
     /// which represents no persistent remapping.
     pub remap: Option<ControlId>,
+    /// New analytics key event state, or `None` to leave unchanged.
     pub analytics_key_events: Option<bool>,
+    /// New raw wheel state, or `None` to leave unchanged.
     pub raw_wheel: Option<bool>,
 }
 
@@ -376,13 +408,21 @@ impl CidReportingChange {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CidReportingChangeEcho {
+    /// Control ID whose reporting state was changed.
     pub cid: ControlId,
+    /// Echoed temporary diversion state when changed.
     pub diverted: Option<bool>,
+    /// Echoed persistent diversion state when changed.
     pub persistently_diverted: Option<bool>,
+    /// Echoed force raw XY state when changed.
     pub force_raw_xy: Option<bool>,
+    /// Echoed raw XY state when changed.
     pub raw_xy: Option<bool>,
+    /// Echoed remapping target when present.
     pub remap: Option<ControlId>,
+    /// Echoed analytics key event state when changed.
     pub analytics_key_events: Option<bool>,
+    /// Echoed raw wheel state when changed.
     pub raw_wheel: Option<bool>,
 }
 
@@ -408,6 +448,7 @@ impl CidReportingChangeEcho {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ReprogControlsCapabilities {
+    /// Whether `resetAllCidReportSettings` is supported.
     pub reset_all_cid_report_settings: bool,
 }
 

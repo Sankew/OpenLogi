@@ -42,7 +42,9 @@ use serde::{Deserialize, Serialize};
 )]
 #[repr(u8)]
 pub enum SmartShiftMode {
+    /// Wheel is in free-spin mode.
     Free = 1,
+    /// Wheel is in ratchet mode.
     Ratchet = 2,
 }
 
@@ -91,6 +93,7 @@ pub const AUTO_DISENGAGE_PERMANENT: u8 = 0xff;
 /// `openlogi-agent-core/tests/wire_format.rs`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SmartShiftStatus {
+    /// Current wheel mode.
     pub mode: SmartShiftMode,
     /// SmartShift speed threshold: `0x01`–`0xFE` in 0.25 turn/s steps (higher
     /// = harder to flip into free-spin while scrolling; Logitech defaults to

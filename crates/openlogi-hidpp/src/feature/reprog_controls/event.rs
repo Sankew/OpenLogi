@@ -12,7 +12,9 @@ fn i16_from_be_payload(bytes: &[u8]) -> i16 {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct AnalyticsKeyEvent {
+    /// Control ID associated with the analytics event.
     pub cid: ControlId,
+    /// Device-defined analytics event code.
     pub event: u8,
 }
 
@@ -30,7 +32,9 @@ impl AnalyticsKeyEvent {
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[repr(u8)]
 pub enum RawWheelResolution {
+    /// Low-resolution wheel movement.
     Low = 0,
+    /// High-resolution wheel movement.
     High = 1,
 }
 
@@ -38,15 +42,24 @@ pub enum RawWheelResolution {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ReprogControlsEvent {
+    /// Up to four currently pressed diverted controls.
     DivertedButtons([ControlId; 4]),
+    /// Raw pointer movement reported while a diverted control is held.
     DivertedRawMouseXy {
+        /// Horizontal delta.
         dx: i16,
+        /// Vertical delta.
         dy: i16,
     },
+    /// Batch of analytics key event entries.
     AnalyticsKeyEvents([AnalyticsKeyEvent; 5]),
+    /// Raw wheel movement reported while a diverted control is held.
     DivertedRawWheel {
+        /// Wheel movement resolution.
         resolution: RawWheelResolution,
+        /// Number of wheel periods encoded in the event header.
         periods: U4,
+        /// Vertical wheel delta.
         delta_vertical: i16,
     },
 }

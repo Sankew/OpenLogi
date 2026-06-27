@@ -57,8 +57,10 @@ const PROBE_BUDGET: Duration = Duration::from_secs(5);
 /// just lacks capabilities / battery until the next tick.
 const UNIFYING_SLOT_PROBE: Duration = Duration::from_millis(3500);
 
+/// Errors raised while enumerating HID++ devices.
 #[derive(Debug, Error)]
 pub enum InventoryError {
+    /// Underlying HID backend error.
     #[error("HID transport error")]
     Hid(#[from] async_hid::HidError),
 }

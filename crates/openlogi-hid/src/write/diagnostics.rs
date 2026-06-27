@@ -10,7 +10,9 @@ use crate::write::{HidppOperation, WriteError, classify_hidpp_error, with_route}
 /// version. Returned by [`dump_features`] for diagnostics.
 #[derive(Debug, Clone, Copy)]
 pub struct FeatureEntry {
+    /// HID++ feature ID.
     pub id: u16,
+    /// Feature version reported by the device.
     pub version: u8,
 }
 
@@ -19,8 +21,11 @@ pub struct FeatureEntry {
 /// identified before OpenLogi maps them to a first-class button.
 #[derive(Debug, Clone, Copy)]
 pub struct ReprogControlEntry {
+    /// HID++ control ID.
     pub cid: u16,
+    /// Default task ID assigned to the control.
     pub task_id: u16,
+    /// Capability and classification flags for the control.
     pub flags: CidFlags,
 }
 

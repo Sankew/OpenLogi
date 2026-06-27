@@ -193,6 +193,7 @@ pub async fn get_dpi_info(route: &DeviceRoute) -> Result<DpiInfo, WriteError> {
     .await
 }
 
+/// Set sensor 0's DPI for the device addressed by `route`.
 pub async fn set_dpi(route: &DeviceRoute, dpi: u16) -> Result<(), WriteError> {
     let index = route.device_index();
     with_route(route, move |channel| async move {

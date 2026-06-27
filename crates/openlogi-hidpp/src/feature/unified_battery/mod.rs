@@ -173,9 +173,13 @@ pub struct BatteryInfo {
 #[non_exhaustive]
 #[repr(u8)]
 pub enum BatteryLevel {
+    /// Critical battery level.
     Critical = 1,
+    /// Low battery level.
     Low = 1 << 1,
+    /// Good battery level.
     Good = 1 << 2,
+    /// Full battery level.
     Full = 1 << 3,
 }
 
@@ -185,10 +189,15 @@ pub enum BatteryLevel {
 #[non_exhaustive]
 #[repr(u8)]
 pub enum BatteryStatus {
+    /// Battery is discharging.
     Discharging = 0,
+    /// Battery is charging.
     Charging = 1,
+    /// Battery is charging slowly.
     ChargingSlow = 2,
+    /// Battery is full.
     Full = 3,
+    /// Battery subsystem reported an error.
     Error = 4,
 }
 
