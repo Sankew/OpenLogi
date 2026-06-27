@@ -153,7 +153,7 @@ impl Enumerator {
     /// unanswered, probe timeout, open failure) is **not** reported as absent:
     /// its last completed inventory is replayed for a bounded grace and its
     /// channel is reopened, so a transient HID++ glitch can't masquerade as
-    /// "no devices" (#218) — see [`crate::node_ledger`].
+    /// "no devices" (#218) — see the node ledger.
     pub async fn enumerate(&mut self) -> Result<Vec<DeviceInventory>, InventoryError> {
         self.enumerate_reporting_health().await.map(|(inv, _)| inv)
     }

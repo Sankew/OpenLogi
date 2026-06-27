@@ -1,7 +1,7 @@
 //! HID++ writes back to the device — DPI, SmartShift, lighting, and diagnostics.
 //!
 //! Each entry point takes a [`DeviceRoute`] and resolves it to an open channel
-//! through [`open_route_channel`], so the same call works whether the device is
+//! through `open_route_channel`, so the same call works whether the device is
 //! behind a Bolt receiver or attached directly (USB cable / Bluetooth). Each
 //! call re-enumerates and re-opens — fine at the frequency this is invoked
 //! (once per slider release) — unless a [`SharedChannel`] from the capture

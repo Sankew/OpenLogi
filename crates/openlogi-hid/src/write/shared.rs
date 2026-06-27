@@ -14,7 +14,7 @@ use super::smartshift::{set_smartshift_on_channel, toggle_smartshift_on_channel}
 /// opening a fresh channel each time (which costs ~100ms+).
 ///
 /// Cheap to clone (an `Arc` plus the [`DeviceRoute`] it points at). Built by
-/// the capture session via [`SharedChannel::new`] and stashed in a slot the
+/// the capture session via `SharedChannel::new` and stashed in a slot the
 /// GUI's write path consults.
 #[derive(Clone)]
 pub struct SharedChannel {
