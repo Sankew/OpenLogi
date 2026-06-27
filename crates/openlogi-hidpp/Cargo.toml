@@ -23,6 +23,7 @@ repository.workspace = true
 description = "OpenLogi's vendored fork of the `hidpp` crate (Logitech HID++ protocol)."
 keywords = ["hid++", "logitech", "hid", "mouse", "keyboard"]
 categories = ["hardware-support"]
+readme = "README.md"
 
 [lib]
 name = "hidpp"

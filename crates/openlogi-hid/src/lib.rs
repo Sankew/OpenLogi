@@ -6,6 +6,10 @@
 //! - [`enumerate`] — one-shot inventory of receivers + paired devices.
 //! - [`set_dpi`] — write a new sensor DPI to a connected device.
 
+#![deny(missing_docs)]
+#![deny(rustdoc::bare_urls)]
+#![deny(rustdoc::broken_intra_doc_links)]
+
 mod mappings;
 mod node_ledger;
 mod route;
