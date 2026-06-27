@@ -29,8 +29,8 @@ pub async fn run(args: ControlsArgs) -> Result<()> {
     }
 
     println!(
-        "  {:>6}  {:>6}  {:>6}  {}",
-        "cid", "task", "flags", "capabilities"
+        "  {:>6}  {:>6}  {:>6}  capabilities",
+        "cid", "task", "flags"
     );
     for control in controls {
         println!(
@@ -77,7 +77,7 @@ mod tests {
         let entry = ReprogControlEntry {
             cid: 0,
             task_id: 0,
-            flags: Default::default(),
+            flags: openlogi_hid::reprog_controls::CidFlags::default(),
         };
 
         assert_eq!(summarize_capabilities(entry), "-");
