@@ -6,6 +6,7 @@
 
 use anyhow::{Result, anyhow};
 use clap::{Args, ValueEnum};
+use openlogi_core::color::Rgb;
 use openlogi_hid::{DeviceRoute, LightingMethod};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -44,15 +45,8 @@ pub struct LightingArgs {
 }
 
 pub async fn run(args: LightingArgs) -> Result<()> {
-    let hex = args.color.trim_start_matches('#');
-    if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(anyhow!("color must be exactly 6 hex digits, e.g. ff0000"));
-    }
-    let rgb = u32::from_str_radix(hex, 16)
-        .map_err(|_| anyhow!("color must be 6 hex digits, e.g. ff0000"))?;
-    let r = ((rgb >> 16) & 0xff) as u8;
-    let g = ((rgb >> 8) & 0xff) as u8;
-    let b = (rgb & 0xff) as u8;
+    let color: Rgb = args.color.trim_start_matches('#').parse()?;
+    let (r, g, b) = color.components();
 
     let device_query = args.device;
     let needle = device_query.as_deref().map(str::to_lowercase);
