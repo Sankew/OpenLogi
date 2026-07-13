@@ -4906,6 +4906,7 @@ dependencies = [
 name = "openlogi-core"
 version = "0.6.19"
 dependencies = [
+ "atomic-write-file",
  "etcetera",
  "fs4",
  "serde",
