@@ -455,7 +455,7 @@ impl PartialDevice {
         Some(DiscoveredDevice {
             address,
             authentication,
-            kind: BoltDeviceKind::try_from(kind & 0x0f).unwrap_or(BoltDeviceKind::Unknown),
+            kind: BoltDeviceKind::from(kind & 0x0f),
             name,
         })
     }
