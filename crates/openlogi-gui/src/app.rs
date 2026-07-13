@@ -22,11 +22,10 @@ use openlogi_core::device::{
 };
 use openlogi_hid::DeviceRoute;
 use tracing::info;
-use url::Url;
 
 use openlogi_agent_core::ipc::InventoryHealth;
 
-use crate::app_menu::{CloseWindow, Minimize, Zoom};
+use crate::app_menu::{CloseWindow, Minimize, Zoom, file_url};
 use crate::asset::{AssetResolver, GlowGeometry};
 use crate::components::carousel::Carousel;
 use crate::components::dpi_panel::DpiPanel;
@@ -997,7 +996,12 @@ fn pointer_tab(
                     pal,
                     smartshift_panel.clone().into_any_element(),
                 )))
-                .child(pointer_grid_card_natural(scrolling_card(pal, cx))),
+                .child(
+                    div()
+                        .min_w(px(332.))
+                        .flex_1()
+                        .child(scrolling_card(pal, cx)),
+                ),
         )
 }
 
@@ -1005,10 +1009,6 @@ fn pointer_grid_card(card: impl IntoElement) -> impl IntoElement {
     // Two cards plus one 16 px gap fit exactly inside the 720 px window minimum
     // after this tab's 20 px side padding, while still leaving a usable slider.
     div().min_w(px(332.)).flex_1().h_full().child(card)
-}
-
-fn pointer_grid_card_natural(card: impl IntoElement) -> impl IntoElement {
-    div().min_w(px(332.)).flex_1().child(card)
 }
 
 /// Scrolling card: a per-device "invert scroll direction" toggle (#126). Pure
@@ -1366,7 +1366,7 @@ fn battery_summary(battery: &BatteryInfo, pal: Palette) -> impl IntoElement {
                 .child(
                     div()
                         .h_full()
-                        .w(relative_percent(battery.percentage))
+                        .w(relative(f32::from(battery.percentage.clamp(1, 100)) / 100.))
                         .rounded_full()
                         .bg(rgb(battery_color(battery.percentage))),
                 ),
@@ -1466,14 +1466,6 @@ fn battery_color(percentage: u8) -> u32 {
         21..=50 => theme::STATUS_CONNECTING,
         _ => theme::STATUS_CONNECTED,
     }
-}
-
-fn relative_percent(value: u8) -> gpui::DefiniteLength {
-    relative(f32::from(value.clamp(1, 100)) / 100.)
-}
-
-fn file_url(path: &std::path::Path) -> Option<String> {
-    Url::from_file_path(path).ok().map(Into::into)
 }
 
 /// Centered spinner over a muted one-line caption — the quiet "still working"
