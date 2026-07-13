@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.20](https://github.com/AprilNEA/OpenLogi/compare/openlogi-core-v0.6.19...openlogi-core-v0.6.20) - 2026-07-13
+
+### Fixed
+
+- *(smartshift)* stop runaway free-spin scroll and control snap-back ([#333](https://github.com/AprilNEA/OpenLogi/pull/333))
+
 ## [0.6.19](https://github.com/AprilNEA/OpenLogi/compare/openlogi-core-v0.6.18...openlogi-core-v0.6.19) - 2026-07-04
 
 ### Added
