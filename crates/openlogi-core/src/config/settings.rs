@@ -24,6 +24,25 @@ pub enum Appearance {
     Dark,
 }
 
+/// Preferred source for on-demand device assets.
+///
+/// `Automatic` races every built-in mirror; the other variants pin a sync to
+/// one source. The GUI maps this persisted preference to the shared asset
+/// client's source type, keeping endpoint URLs and npm routing out of config.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssetSourcePreference {
+    /// Use the first healthy built-in mirror.
+    #[default]
+    Automatic,
+    /// Use the mutable `assets.openlogi.org` production endpoint.
+    Production,
+    /// Use the versioned endpoint on Cloudflare's network.
+    Cloudflare,
+    /// Use the versioned npm packages through Fastly's network.
+    Fastly,
+}
+
 /// App-wide preferences not tied to any particular device.
 ///
 /// All fields are `#[serde(default)]` so adding a new one is backward
@@ -76,6 +95,11 @@ pub struct AppSettings {
     /// manual "Refresh assets" in Settings still fetches on demand regardless.
     #[serde(default = "default_true")]
     pub auto_download_assets: bool,
+    /// Preferred mirror for automatic and manual device-asset downloads.
+    /// Defaults to racing all built-in mirrors; `OPENLOGI_ASSETS` remains a
+    /// process-level override for development and diagnostics.
+    #[serde(default)]
+    pub asset_source: AssetSourcePreference,
     /// UI language as a BCP-47-ish locale code matching the GUI's bundled
     /// locales (e.g. `"en"`, `"de"`, `"pt-BR"`, `"zh-CN"`, `"zh-TW"`; see the
     /// GUI's `i18n::SUPPORTED`). `None` means "follow the system locale", which
@@ -136,6 +160,7 @@ impl Default for AppSettings {
             update_prompt_seen: false,
             show_in_menu_bar: true,
             auto_download_assets: true,
+            asset_source: AssetSourcePreference::Automatic,
             language: None,
             thumbwheel_sensitivity: DEFAULT_THUMBWHEEL_SENSITIVITY,
             appearance: Appearance::System,

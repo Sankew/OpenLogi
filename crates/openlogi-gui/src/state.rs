@@ -12,7 +12,9 @@
 use std::collections::BTreeMap;
 
 use gpui::{App, Global};
-use openlogi_core::config::{AppSettings, Appearance, Config, DeviceIdentity, Lighting};
+use openlogi_core::config::{
+    AppSettings, Appearance, AssetSourcePreference, Config, DeviceIdentity, Lighting,
+};
 use openlogi_core::device::DeviceInventory;
 use openlogi_hid::{
     DeviceRoute, DpiCapabilities, DpiInfo, SmartShiftMode, SmartShiftStatus, WriteError,
@@ -1029,6 +1031,19 @@ impl AppState {
         self.config.app_settings.auto_download_assets = enabled;
         if let Err(e) = self.config.save_atomic() {
             warn!(error = %e, "could not persist auto-download-assets setting");
+        }
+    }
+
+    /// Persist the preferred device-asset source. The Settings view requests a
+    /// refresh separately when automatic downloads are enabled, so this setter
+    /// remains side-effect-free beyond configuration I/O.
+    pub fn set_asset_source(&mut self, source: AssetSourcePreference) {
+        if self.config.app_settings.asset_source == source {
+            return;
+        }
+        self.config.app_settings.asset_source = source;
+        if let Err(e) = self.config.save_atomic() {
+            warn!(error = %e, "could not persist asset-source setting");
         }
     }
 

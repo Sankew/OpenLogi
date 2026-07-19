@@ -77,18 +77,20 @@ impl AssetRegistry {
     /// production domain, versioned Pages alias, and versioned jsDelivr
     /// mirror are probed concurrently; the first complete valid catalog wins.
     pub fn load(base: Option<&str>, dir: &Path) -> Result<Self, AssetError> {
-        if let Some(base) = base {
-            let client = AssetClient::new(base);
-            let index = client.fetch_index_to_dir(dir)?;
-            let source = AssetSource::Override(base.to_owned());
-            info!(%source, "asset source selected");
-            return Ok(Self {
-                client,
-                index,
-                source,
-            });
+        Self::load_source(base.map(|base| AssetSource::Override(base.to_owned())), dir)
+    }
+
+    /// Load a registry from one selected built-in source, or race all built-in
+    /// sources when `source` is `None`.
+    ///
+    /// Unlike passing the jsDelivr catalog URL as a uniform override to
+    /// [`Self::load`], selecting [`AssetSource::JsDelivr`] also loads and
+    /// validates its npm shard routes.
+    pub fn load_source(source: Option<AssetSource>, dir: &Path) -> Result<Self, AssetError> {
+        match source {
+            Some(source) => load_selected_source(source, dir),
+            None => probe_default_sources(dir),
         }
-        probe_default_sources(dir)
     }
 
     /// Client pinned to the selected mirror for the lifetime of this registry.
@@ -121,6 +123,30 @@ struct ProbeSuccess {
     client: AssetClient,
     index_bytes: Vec<u8>,
     index: Index,
+}
+
+fn load_selected_source(source: AssetSource, dir: &Path) -> Result<AssetRegistry, AssetError> {
+    let probe = match &source {
+        AssetSource::Production => probe_uniform(PRODUCTION_BASE),
+        AssetSource::Pages => probe_uniform(PAGES_BASE),
+        AssetSource::JsDelivr => probe_jsdelivr(),
+        AssetSource::Override(base) => probe_uniform(base),
+    }?;
+    registry_from_probe(source, probe, dir)
+}
+
+fn registry_from_probe(
+    source: AssetSource,
+    probe: ProbeSuccess,
+    dir: &Path,
+) -> Result<AssetRegistry, AssetError> {
+    write_replace(&dir.join(INDEX_NAME), &probe.index_bytes)?;
+    info!(%source, "asset source selected");
+    Ok(AssetRegistry {
+        client: probe.client,
+        index: probe.index,
+        source,
+    })
 }
 
 fn probe_default_sources(dir: &Path) -> Result<AssetRegistry, AssetError> {
@@ -157,13 +183,7 @@ fn probe_default_sources(dir: &Path) -> Result<AssetRegistry, AssetError> {
         match result {
             Ok(probe) => {
                 // A local persistence failure is independent of the selected mirror.
-                write_replace(&dir.join(INDEX_NAME), &probe.index_bytes)?;
-                info!(%source, "asset source selected");
-                return Ok(AssetRegistry {
-                    client: probe.client,
-                    index: probe.index,
-                    source,
-                });
+                return registry_from_probe(source, probe, dir);
             }
             Err(error) => {
                 warn!(%source, error = ?error, "asset source probe failed");

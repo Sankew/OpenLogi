@@ -16,8 +16,9 @@ use anyhow::{Context as _, Result};
 use backon::{BackoffBuilder, ExponentialBuilder};
 use openlogi_assets::http;
 use openlogi_assets::{
-    AssetRegistry, BUTTONS_RENDER_FILES, DepotManifest, DeviceEntry, FetchOutcome,
+    AssetRegistry, AssetSource, BUTTONS_RENDER_FILES, DepotManifest, DeviceEntry, FetchOutcome,
 };
+use openlogi_core::config::AssetSourcePreference;
 use openlogi_core::device::{DeviceInventory, DeviceModelInfo};
 use tracing::{debug, info, warn};
 
@@ -41,8 +42,8 @@ pub fn should_run(has_bundle: bool) -> bool {
     !has_bundle
 }
 
-/// Refresh the local cache: probe the built-in mirrors (or use the explicit
-/// `server` override), persist the selected source's `index.json`, then sync
+/// Refresh the local cache: probe the built-in mirrors (or use the selected
+/// source), persist the selected source's `index.json`, then sync
 /// the depots for every model in `models`. An empty `models` is a valid
 /// call — it prefetches just the index so device resolution works the
 /// moment a device first appears.
@@ -50,12 +51,15 @@ pub fn should_run(has_bundle: bool) -> bool {
 /// Each entry pairs a device's HID++ model info with its firmware `codename`,
 /// so the depot match can fall back to the registry `displayName` for devices
 /// whose live PID isn't in the registry (e.g. an MX Master 3S over BTLE).
-pub fn sync(server: Option<&str>, models: &[(DeviceModelInfo, Option<String>)]) -> Result<()> {
+pub fn sync(
+    source: Option<AssetSource>,
+    models: &[(DeviceModelInfo, Option<String>)],
+) -> Result<()> {
     let cache_root = super::paths::user_cache_root();
     fs::create_dir_all(&cache_root)
         .with_context(|| format!("create cache root {}", cache_root.display()))?;
 
-    let registry = AssetRegistry::load(server, &cache_root).context("fetch asset index")?;
+    let registry = AssetRegistry::load_source(source, &cache_root).context("fetch asset index")?;
     let client = registry.client();
     let index = registry.index();
     // The index is the critical shared resource — if it can't be fetched
@@ -254,14 +258,33 @@ pub(crate) fn sync_retry_delay(attempts: u32) -> Duration {
 /// startup plus the auto-download setting; the Settings → Assets manual
 /// actions always fetch, even in a release build that would otherwise serve
 /// only bundled art.)
-pub(crate) fn run_asset_sync(models: &[(DeviceModelInfo, Option<String>)]) -> bool {
+pub(crate) fn run_asset_sync(
+    preference: AssetSourcePreference,
+    models: &[(DeviceModelInfo, Option<String>)],
+) -> bool {
     let server = std::env::var("OPENLOGI_ASSETS").ok();
-    match sync(server.as_deref(), models) {
+    let source = source_for_sync(preference, server.as_deref());
+    match sync(source, models) {
         Ok(()) => true,
         Err(e) => {
             warn!(error = ?e, "asset sync failed — will retry with backoff");
             false
         }
+    }
+}
+
+fn source_for_sync(
+    preference: AssetSourcePreference,
+    override_base: Option<&str>,
+) -> Option<AssetSource> {
+    if let Some(base) = override_base {
+        return Some(AssetSource::Override(base.to_owned()));
+    }
+    match preference {
+        AssetSourcePreference::Automatic => None,
+        AssetSourcePreference::Production => Some(AssetSource::Production),
+        AssetSourcePreference::Cloudflare => Some(AssetSource::Pages),
+        AssetSourcePreference::Fastly => Some(AssetSource::JsDelivr),
     }
 }
 
@@ -279,7 +302,9 @@ pub(crate) fn collect_models(
 
 #[cfg(test)]
 mod tests {
-    use super::sync_retry_delay;
+    use super::{source_for_sync, sync_retry_delay};
+    use openlogi_assets::AssetSource;
+    use openlogi_core::config::AssetSourcePreference;
     use std::time::Duration;
 
     #[test]
@@ -291,5 +316,34 @@ mod tests {
         // Caps at 60s and never overflows the shift for large attempt counts.
         assert_eq!(sync_retry_delay(7), Duration::from_mins(1));
         assert_eq!(sync_retry_delay(u32::MAX), Duration::from_mins(1));
+    }
+
+    #[test]
+    fn automatic_preference_races_the_built_in_sources() {
+        assert_eq!(
+            source_for_sync(AssetSourcePreference::Automatic, None),
+            None
+        );
+    }
+
+    #[test]
+    fn fastly_preference_uses_the_shard_aware_jsdelivr_source() {
+        assert_eq!(
+            source_for_sync(AssetSourcePreference::Fastly, None),
+            Some(AssetSource::JsDelivr)
+        );
+    }
+
+    #[test]
+    fn environment_override_takes_precedence_over_the_saved_source() {
+        assert_eq!(
+            source_for_sync(
+                AssetSourcePreference::Cloudflare,
+                Some("https://assets.example.test")
+            ),
+            Some(AssetSource::Override(
+                "https://assets.example.test".to_owned()
+            ))
+        );
     }
 }

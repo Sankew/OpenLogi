@@ -59,7 +59,7 @@ use gpui::{
 };
 use gpui_component::{ActiveTheme, Root};
 use openlogi_core::brand::DeeplinkCommand;
-use openlogi_core::config::Config;
+use openlogi_core::config::{AssetSourcePreference, Config};
 use openlogi_core::device::DeviceInventory;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
@@ -297,9 +297,16 @@ fn main() -> Result<()> {
                         // whole automatic path is skipped when the user turned
                         // auto-download off — a manual Refresh still works via
                         // the AssetControl arm below.
-                        let auto_download = cx.update(|cx| {
-                            cx.try_global::<AppState>()
-                                .is_none_or(|s| s.app_settings().auto_download_assets)
+                        let (auto_download, asset_source) = cx.update(|cx| {
+                            cx.try_global::<AppState>().map_or_else(
+                                || (true, AssetSourcePreference::Automatic),
+                                |s| {
+                                    (
+                                        s.app_settings().auto_download_assets,
+                                        s.app_settings().asset_source,
+                                    )
+                                },
+                            )
                         });
                         let backoff_passed = last_sync_at
                             .is_none_or(|t| t.elapsed() >= sync_retry_delay(sync_attempts));
@@ -319,7 +326,7 @@ fn main() -> Result<()> {
                             let tx = sync_tx.clone();
                             std::thread::spawn(move || {
                                 let keys = pending.iter().map(model_key).collect();
-                                let ok = run_asset_sync(&pending);
+                                let ok = run_asset_sync(asset_source, &pending);
                                 let _ = tx.send(SyncOutcome { ok, keys });
                             });
                         }
@@ -427,10 +434,15 @@ fn main() -> Result<()> {
                             sync_attempts = 0;
                             last_sync_at = None;
                             let models = collect_models(&latest_inv);
+                            let asset_source = cx.update(|cx| {
+                                cx.try_global::<AppState>()
+                                    .map(|s| s.app_settings().asset_source)
+                                    .unwrap_or_default()
+                            });
                             let tx = sync_tx.clone();
                             std::thread::spawn(move || {
                                 let keys = models.iter().map(model_key).collect();
-                                let ok = run_asset_sync(&models);
+                                let ok = run_asset_sync(asset_source, &models);
                                 let _ = tx.send(SyncOutcome { ok, keys });
                             });
                         }
