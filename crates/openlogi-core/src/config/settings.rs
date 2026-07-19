@@ -88,11 +88,11 @@ pub struct AppSettings {
     /// while a window is open). Ignored on Linux.
     #[serde(default = "default_true")]
     pub show_in_menu_bar: bool,
-    /// Whether the GUI automatically downloads device images from
-    /// `assets.openlogi.org` when a device appears. `true` (default) keeps
-    /// the current behavior; `false` makes no asset network requests at all
-    /// (the app falls back to bundled art and the synthetic silhouette). A
-    /// manual "Refresh assets" in Settings still fetches on demand regardless.
+    /// Whether the GUI automatically downloads device images from the selected
+    /// source when a device appears. `true` (default) keeps the current behavior;
+    /// `false` makes no asset network requests at all (the app falls back to
+    /// bundled art and the synthetic silhouette). A manual "Refresh assets" in
+    /// Settings still fetches on demand regardless.
     #[serde(default = "default_true")]
     pub auto_download_assets: bool,
     /// Preferred mirror for automatic and manual device-asset downloads.
