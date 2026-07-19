@@ -1015,15 +1015,15 @@ mod tests {
     #[test]
     fn asset_source_preference_roundtrips() {
         let mut cfg = Config::default();
-        cfg.app_settings.asset_source = AssetSourcePreference::Fastly;
+        cfg.app_settings.asset_source = AssetSourcePreference::OpenLogi;
 
         let body = toml::to_string_pretty(&cfg).expect("serialize");
         let parsed = write_and_read(&cfg);
 
-        assert!(body.contains("asset_source = \"fastly\""));
+        assert!(body.contains("asset_source = \"openlogi\""));
         assert_eq!(
             parsed.app_settings.asset_source,
-            AssetSourcePreference::Fastly
+            AssetSourcePreference::OpenLogi
         );
     }
 

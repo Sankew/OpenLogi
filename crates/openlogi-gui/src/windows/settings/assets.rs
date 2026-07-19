@@ -20,7 +20,7 @@ impl SelectItem for AssetSourceOption {
     fn title(&self) -> SharedString {
         match self.source {
             AssetSourcePreference::Automatic => tr!("Automatic (recommended)"),
-            AssetSourcePreference::Production => SharedString::from("assets.openlogi.org"),
+            AssetSourcePreference::OpenLogi => SharedString::from("OpenLogi"),
             AssetSourcePreference::Cloudflare => SharedString::from("Cloudflare"),
             AssetSourcePreference::Fastly => SharedString::from("Fastly"),
         }
@@ -34,7 +34,7 @@ impl SelectItem for AssetSourceOption {
 pub(super) fn asset_source_options() -> Vec<AssetSourceOption> {
     [
         AssetSourcePreference::Automatic,
-        AssetSourcePreference::Production,
+        AssetSourcePreference::OpenLogi,
         AssetSourcePreference::Cloudflare,
         AssetSourcePreference::Fastly,
     ]

@@ -35,8 +35,9 @@ pub enum AssetSourcePreference {
     /// Use the first healthy built-in mirror.
     #[default]
     Automatic,
-    /// Use the mutable `assets.openlogi.org` production endpoint.
-    Production,
+    /// Use OpenLogi's official asset endpoint.
+    #[serde(rename = "openlogi")]
+    OpenLogi,
     /// Use the versioned endpoint on Cloudflare's network.
     Cloudflare,
     /// Use the versioned npm packages through Fastly's network.

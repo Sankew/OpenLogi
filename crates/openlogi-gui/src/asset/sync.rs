@@ -282,7 +282,7 @@ fn source_for_sync(
     }
     match preference {
         AssetSourcePreference::Automatic => None,
-        AssetSourcePreference::Production => Some(AssetSource::Production),
+        AssetSourcePreference::OpenLogi => Some(AssetSource::Production),
         AssetSourcePreference::Cloudflare => Some(AssetSource::Pages),
         AssetSourcePreference::Fastly => Some(AssetSource::JsDelivr),
     }
@@ -323,6 +323,14 @@ mod tests {
         assert_eq!(
             source_for_sync(AssetSourcePreference::Automatic, None),
             None
+        );
+    }
+
+    #[test]
+    fn openlogi_preference_uses_the_official_source() {
+        assert_eq!(
+            source_for_sync(AssetSourcePreference::OpenLogi, None),
+            Some(AssetSource::Production)
         );
     }
 
