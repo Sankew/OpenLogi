@@ -125,7 +125,16 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Match CI's RUSTFLAGS so the rust-cache env hash hits linux-stable-debug.
+      - name: Align rust-cache env with CI
+        run: echo "RUSTFLAGS=-D warnings" >> "$GITHUB_ENV"
+
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust
+          shared-key: linux-stable-debug
+          # Tag publish is not a useful cache writer; restore CI deps only.
+          save-if: false
 
       - uses: actions/download-artifact@v8
         with:
