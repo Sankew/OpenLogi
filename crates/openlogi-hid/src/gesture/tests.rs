@@ -105,14 +105,16 @@ fn quick_tap_is_a_click_even_while_the_cursor_moves() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut acc = CaptureAccum::default();
 
-    handle_reprog(&mut acc, press(), &[], &tx);
+    handle_reprog(&mut acc, press(), &[], &[], &[], &tx);
     handle_reprog(
         &mut acc,
         RawControlEvent::RawXy { dx: 120, dy: 5 },
         &[],
+        &[],
+        &[],
         &tx,
     );
-    handle_reprog(&mut acc, release(), &[], &tx);
+    handle_reprog(&mut acc, release(), &[], &[], &[], &tx);
 
     assert_eq!(
         rx.try_recv(),
@@ -129,12 +131,14 @@ fn a_held_gesture_commits_a_swipe_and_does_not_also_click() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut acc = CaptureAccum::default();
 
-    handle_reprog(&mut acc, press(), &[], &tx);
+    handle_reprog(&mut acc, press(), &[], &[], &[], &tx);
     // Pretend the button has been held well past the swipe gate.
     acc.swipe.backdate_hold_for_test();
     handle_reprog(
         &mut acc,
         RawControlEvent::RawXy { dx: 120, dy: 5 },
+        &[],
+        &[],
         &[],
         &tx,
     );
@@ -144,7 +148,7 @@ fn a_held_gesture_commits_a_swipe_and_does_not_also_click() {
         Ok(CapturedInput::Gesture(GestureDirection::Right))
     );
 
-    handle_reprog(&mut acc, release(), &[], &tx);
+    handle_reprog(&mut acc, release(), &[], &[], &[], &tx);
     assert!(
         rx.try_recv().is_err(),
         "a committed swipe must not also click on release"
@@ -158,12 +162,12 @@ fn a_held_dpi_button_presses_once_on_the_rising_edge() {
     let dpi = reprog_controls::DPI_MODE_SHIFT_CIDS[0];
     let down = RawControlEvent::DivertedButtons([dpi, 0, 0, 0]);
 
-    handle_reprog(&mut acc, down, &[dpi], &tx);
-    handle_reprog(&mut acc, down, &[dpi], &tx);
+    handle_reprog(&mut acc, down, &[dpi], &[], &[], &tx);
+    handle_reprog(&mut acc, down, &[dpi], &[], &[], &tx);
 
     assert_eq!(
         rx.try_recv(),
-        Ok(CapturedInput::ButtonPressed(ButtonId::DpiToggle))
+        Ok(CapturedInput::ButtonPressed(ButtonId::DpiToggle, None))
     );
     assert!(rx.try_recv().is_err(), "a held DPI button presses once");
 }
@@ -179,18 +183,98 @@ fn a_dpi_button_re_presses_after_a_release() {
     let down = RawControlEvent::DivertedButtons([dpi, 0, 0, 0]);
     let up = RawControlEvent::DivertedButtons([0, 0, 0, 0]);
 
-    handle_reprog(&mut acc, down, &[dpi], &tx);
-    handle_reprog(&mut acc, up, &[dpi], &tx);
-    handle_reprog(&mut acc, down, &[dpi], &tx);
+    handle_reprog(&mut acc, down, &[dpi], &[], &[], &tx);
+    handle_reprog(&mut acc, up, &[dpi], &[], &[], &tx);
+    handle_reprog(&mut acc, down, &[dpi], &[], &[], &tx);
 
     assert_eq!(
         rx.try_recv(),
-        Ok(CapturedInput::ButtonPressed(ButtonId::DpiToggle))
+        Ok(CapturedInput::ButtonPressed(ButtonId::DpiToggle, None))
     );
     assert_eq!(
         rx.try_recv(),
-        Ok(CapturedInput::ButtonPressed(ButtonId::DpiToggle)),
+        Ok(CapturedInput::ButtonPressed(ButtonId::DpiToggle, None)),
         "a release re-arms the rising edge"
+    );
+    assert!(rx.try_recv().is_err());
+}
+
+// Back/Forward emit `ButtonPressed` with a real `frontmost_pid()` reading
+// (`Some` on macOS, `None` elsewhere — see `frontmost_pid`), unlike DPI's
+// hardcoded `None`, so these assertions match on the button only.
+
+#[test]
+fn a_held_back_button_presses_once_on_the_rising_edge() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut acc = CaptureAccum::default();
+    let back = reprog_controls::BACK_CIDS[0];
+    let down = RawControlEvent::DivertedButtons([back, 0, 0, 0]);
+
+    handle_reprog(&mut acc, down, &[], &[back], &[], &tx);
+    handle_reprog(&mut acc, down, &[], &[back], &[], &tx);
+
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(CapturedInput::ButtonPressed(ButtonId::Back, _))
+    ));
+    assert!(rx.try_recv().is_err(), "a held Back button presses once");
+}
+
+#[test]
+fn a_forward_button_re_press_within_the_debounce_window_is_suppressed() {
+    // Unlike the DPI button, Back/Forward re-arm on release is gated by
+    // BACK_FORWARD_DEBOUNCE: the MX Vertical's firmware can report a single
+    // physical click as press/release/press within a few ms, and without the
+    // debounce that would fire twice. A press → release → press happening in
+    // a tight test loop is well within the 150ms window, so the second press
+    // must be suppressed.
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut acc = CaptureAccum::default();
+    let fwd = reprog_controls::FORWARD_CIDS[0];
+    let down = RawControlEvent::DivertedButtons([fwd, 0, 0, 0]);
+    let up = RawControlEvent::DivertedButtons([0, 0, 0, 0]);
+
+    handle_reprog(&mut acc, down, &[], &[], &[fwd], &tx);
+    handle_reprog(&mut acc, up, &[], &[], &[fwd], &tx);
+    handle_reprog(&mut acc, down, &[], &[], &[fwd], &tx);
+
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(CapturedInput::ButtonPressed(ButtonId::Forward, _))
+    ));
+    assert!(
+        rx.try_recv().is_err(),
+        "a re-press inside the debounce window must not re-fire"
+    );
+}
+
+#[test]
+fn a_back_button_re_press_after_the_debounce_window_fires_again() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut acc = CaptureAccum::default();
+    let back = reprog_controls::BACK_CIDS[0];
+    let down = RawControlEvent::DivertedButtons([back, 0, 0, 0]);
+    let up = RawControlEvent::DivertedButtons([0, 0, 0, 0]);
+
+    handle_reprog(&mut acc, down, &[], &[back], &[], &tx);
+    handle_reprog(&mut acc, up, &[], &[back], &[], &tx);
+    // Backdate the last dispatch past the debounce window instead of
+    // sleeping in the test, mirroring `SwipeAccumulator::backdate_hold_for_test`.
+    acc.last_back = acc
+        .last_back
+        .and_then(|t| t.checked_sub(BACK_FORWARD_DEBOUNCE + Duration::from_millis(1)));
+    handle_reprog(&mut acc, down, &[], &[back], &[], &tx);
+
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(CapturedInput::ButtonPressed(ButtonId::Back, _))
+    ));
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Ok(CapturedInput::ButtonPressed(ButtonId::Back, _))
+        ),
+        "a re-press past the debounce window re-arms and fires"
     );
     assert!(rx.try_recv().is_err());
 }
