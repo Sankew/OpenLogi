@@ -35,7 +35,7 @@ use tracing::{debug, warn};
 
 use crate::DpiCycleState;
 use crate::hook_runtime::{self, SharedHookMaps};
-use crate::receiver_access::{CaptureReceiverLease, ReceiverAccess};
+use crate::receiver_access::{ReceiverAccess, SessionReceiverLease};
 
 /// Shared gesture-direction binding map, mirrored from `AppState` (keyed by
 /// direction). The watcher reads it to map a captured swipe to a bound action.
@@ -228,7 +228,7 @@ struct CaptureLaunch {
     divert_gesture_button: bool,
     sink: mpsc::UnboundedSender<CapturedInput>,
     channel_slot: CaptureChannel,
-    receiver_lease: CaptureReceiverLease,
+    receiver_lease: SessionReceiverLease,
     registry: Option<ChannelRegistry>,
     done: mpsc::UnboundedSender<u64>,
     epoch: u64,
@@ -316,6 +316,7 @@ async fn manage(
                         dpi_cycle: &dpi_cycle,
                         capture: &capture_channel,
                         registry: registry.as_ref(),
+                        receiver_access: &receiver_access,
                     },
                     &thumbwheel_sensitivity,
                 );
@@ -324,7 +325,7 @@ async fn manage(
                 // While pairing is waiting or active, release the capture
                 // session so run_pairing can own the receiver's HID node (one
                 // process can't read it through two channels).
-                let want = if receiver_access.pairing_requested() {
+                let want = if receiver_access.exclusive_requested() {
                     None
                 } else {
                     let target = dpi_cycle.read().ok().and_then(|guard| guard.target.clone());
@@ -362,7 +363,7 @@ async fn manage(
                     continue;
                 }
                 if let Some((route, capture_thumbwheel, divert_gesture_button)) = want {
-                    let Some(receiver_lease) = receiver_access.try_acquire_for_capture() else {
+                    let Some(receiver_lease) = receiver_access.try_acquire_for_session() else {
                         current = None;
                         continue;
                     };
@@ -450,6 +451,7 @@ struct DispatchHardware<'a> {
     dpi_cycle: &'a Arc<RwLock<DpiCycleState>>,
     capture: &'a CaptureChannel,
     registry: Option<&'a ChannelRegistry>,
+    receiver_access: &'a ReceiverAccess,
 }
 
 fn dispatch(
@@ -473,6 +475,7 @@ fn dispatch(
                     hardware.dpi_cycle,
                     hardware.capture,
                     hardware.registry,
+                    hardware.receiver_access,
                 );
             } else {
                 debug!(?direction, "gesture with no binding — ignored");
@@ -500,6 +503,7 @@ fn dispatch(
                         hardware.dpi_cycle,
                         hardware.capture,
                         hardware.registry,
+                        hardware.receiver_access,
                     );
                 }
             } else {
@@ -538,6 +542,7 @@ fn dispatch(
                         hardware.dpi_cycle,
                         hardware.capture,
                         hardware.registry,
+                        hardware.receiver_access,
                     );
                 }
             }
