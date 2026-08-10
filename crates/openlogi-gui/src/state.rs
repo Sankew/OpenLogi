@@ -12,6 +12,7 @@
 use std::collections::BTreeMap;
 
 use gpui::{App, Global};
+use openlogi_camera::CameraControl;
 use openlogi_core::config::{
     AppSettings, Appearance, AssetSourcePreference, Config, DeviceIdentity, Lighting,
 };
@@ -44,6 +45,7 @@ pub enum SmartShiftWriteStatus {
     Failed,
 }
 
+pub(crate) use devices::camera_model_info;
 use load::LazyDeviceData;
 
 use crate::asset::AssetResolver;
@@ -183,9 +185,10 @@ impl AppState {
         mut config: Config,
         inventories: &[DeviceInventory],
         cache: &AssetResolver,
+        cameras: &[openlogi_camera::Camera],
         ipc_commands: mpsc::UnboundedSender<crate::ipc_client::Command>,
     ) -> Self {
-        let device_list = build_device_list(inventories, cache, &config);
+        let device_list = build_device_list(inventories, cache, &config, cameras);
         // Record any device probed at launch so it survives the next cold start.
         persist_identities(&mut config, &device_list);
         let current_device = pick_initial_device(&device_list, config.selected_device());
@@ -341,6 +344,146 @@ impl AppState {
             .collect()
     }
 
+    /// Whether any connected device is a webcam. Gates the camera-permission UI
+    /// so it only appears when there is actually a camera to grant access to.
+    /// Only the platforms that register the permission page (macOS/Linux) call
+    /// this; Windows has no such page, so the method is scoped to match.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[must_use]
+    pub fn has_camera(&self) -> bool {
+        self.device_list
+            .iter()
+            .any(|r| matches!(r.kind, openlogi_core::device::DeviceKind::Camera))
+    }
+
+    /// The saved value of a UVC control for `config_key`, if any.
+    #[must_use]
+    pub fn camera_control(&self, config_key: &str, control: CameraControl) -> Option<i32> {
+        self.config
+            .camera_controls(config_key)?
+            .0
+            .get(control.name())
+            .copied()
+    }
+
+    /// The saved state of a camera auto toggle for `config_key`, if any.
+    #[must_use]
+    pub fn camera_auto(
+        &self,
+        config_key: &str,
+        toggle: openlogi_camera::AutoToggle,
+    ) -> Option<bool> {
+        self.config
+            .camera_controls(config_key)?
+            .0
+            .get(toggle.name())
+            .map(|v| *v != 0)
+    }
+
+    /// Persist a UVC control for `config_key`. No agent IPC — webcams are
+    /// driven straight from the GUI over USB, so the agent never sees this.
+    pub fn commit_camera_control(&mut self, config_key: &str, control: CameraControl, value: i32) {
+        self.commit_camera_entry(config_key, control.name(), value);
+    }
+
+    /// Persist a camera auto toggle for `config_key` (stored as 0/1).
+    pub fn commit_camera_auto(
+        &mut self,
+        config_key: &str,
+        toggle: openlogi_camera::AutoToggle,
+        on: bool,
+    ) {
+        self.commit_camera_entry(config_key, toggle.name(), i32::from(on));
+    }
+
+    fn commit_camera_entry(&mut self, config_key: &str, name: &str, value: i32) {
+        let mut controls = self.config.camera_controls(config_key).unwrap_or_default();
+        controls.0.insert(name.to_string(), value);
+        self.config.set_camera_controls(config_key, controls);
+        if let Err(e) = self.config.save_atomic() {
+            warn!(error = %e, "could not persist camera controls");
+        }
+    }
+
+    /// Lift settings from the legacy port-bound `camera-<unique_id>` key onto
+    /// the stable serial/model key when the latter has none. Inventory identity
+    /// for cameras is separate ([`DeviceRecord::inventory_key`]); settings never
+    /// use capture-id suffixes, so two serial-less same-model units honestly
+    /// share one settings bag rather than risk cross-assigning on port moves.
+    pub fn migrate_legacy_camera_key(&mut self, config_key: &str, capture_id: &str) {
+        if self.camera_key_has_settings(config_key) {
+            return;
+        }
+        let port_key = format!("camera-{capture_id}");
+        if port_key == config_key || !self.camera_key_has_settings(&port_key) {
+            return;
+        }
+        if let Some(controls) = self.config.camera_controls(&port_key) {
+            self.config.set_camera_controls(config_key, controls);
+        }
+        for (name, snap) in self.config.camera_profiles(&port_key) {
+            self.config.save_camera_profile(config_key, &name, snap);
+        }
+        if let Some(active) = self.config.camera_active_profile(&port_key) {
+            self.config
+                .set_camera_active_profile(config_key, Some(active));
+        }
+        self.config.devices.remove(&port_key);
+        if let Err(e) = self.config.save_atomic() {
+            warn!(error = %e, "could not persist camera key migration");
+        }
+    }
+
+    fn camera_key_has_settings(&self, key: &str) -> bool {
+        self.config.camera_controls(key).is_some()
+            || !self.config.camera_profiles(key).is_empty()
+            || self.config.camera_active_profile(key).is_some()
+    }
+
+    /// User-saved camera profiles for `config_key` (name → snapshot).
+    #[must_use]
+    pub fn camera_profiles(
+        &self,
+        config_key: &str,
+    ) -> std::collections::BTreeMap<String, openlogi_core::config::CameraControls> {
+        self.config.camera_profiles(config_key)
+    }
+
+    /// Save a custom camera profile and persist it.
+    pub fn save_camera_profile(
+        &mut self,
+        config_key: &str,
+        name: &str,
+        snap: openlogi_core::config::CameraControls,
+    ) {
+        self.config.save_camera_profile(config_key, name, snap);
+        if let Err(e) = self.config.save_atomic() {
+            warn!(error = %e, "could not persist camera profile");
+        }
+    }
+
+    /// Delete a custom camera profile and persist the removal.
+    pub fn delete_camera_profile(&mut self, config_key: &str, name: &str) {
+        self.config.delete_camera_profile(config_key, name);
+        if let Err(e) = self.config.save_atomic() {
+            warn!(error = %e, "could not persist camera profile removal");
+        }
+    }
+
+    /// The camera profile last applied for `config_key`, if any.
+    #[must_use]
+    pub fn camera_active_profile(&self, config_key: &str) -> Option<String> {
+        self.config.camera_active_profile(config_key)
+    }
+
+    /// Record (and persist) which camera profile `config_key` last applied.
+    pub fn set_camera_active_profile(&mut self, config_key: &str, name: Option<String>) {
+        self.config.set_camera_active_profile(config_key, name);
+        if let Err(e) = self.config.save_atomic() {
+            warn!(error = %e, "could not persist camera profile selection");
+        }
+    }
+
     /// The agent connection state the render path branches on.
     #[must_use]
     pub fn agent_link(&self) -> &AgentLink {
@@ -385,8 +528,9 @@ impl AppState {
         inventories: &[DeviceInventory],
         cache: &AssetResolver,
         force: bool,
+        cameras: &[openlogi_camera::Camera],
     ) -> bool {
-        let new_list = build_device_list(inventories, cache, &self.config);
+        let new_list = build_device_list(inventories, cache, &self.config, cameras);
         let merged_list = self.merge_inventory_snapshot(new_list);
         // Capture any newly-probed identity before the unchanged-check can early
         // out: a device whose capabilities just resolved keeps the same
@@ -405,6 +549,7 @@ impl AppState {
                 .zip(self.device_list.iter())
                 .all(|(a, b)| {
                     a.config_key == b.config_key
+                        && a.capture_id == b.capture_id
                         && a.route == b.route
                         && a.online == b.online
                         && a.capabilities == b.capabilities
@@ -413,10 +558,10 @@ impl AppState {
             return false;
         }
 
-        let previous_key = self.current_record().map(|r| r.config_key.clone());
+        let previous_key = self.current_record().map(DeviceRecord::inventory_key);
         let new_index = previous_key
             .as_deref()
-            .and_then(|k| merged_list.iter().position(|r| r.config_key == k))
+            .and_then(|k| merged_list.iter().position(|r| r.inventory_key() == k))
             .unwrap_or(0);
         let connected_keys = merged_list
             .iter()
@@ -472,20 +617,21 @@ impl AppState {
     fn merge_inventory_snapshot(&mut self, new_list: Vec<DeviceRecord>) -> Vec<DeviceRecord> {
         let mut by_key = new_list
             .into_iter()
-            .map(|record| (record.config_key.clone(), record))
+            .map(|record| (record.inventory_key(), record))
             .collect::<BTreeMap<_, _>>();
         let mut adopted = self.adopt_transient_records(&mut by_key);
         let mut merged = Vec::with_capacity(by_key.len().max(self.device_list.len()));
 
         for previous in &self.device_list {
-            if let Some(record) = by_key.remove(&previous.config_key) {
-                self.inventory_misses.remove(&previous.config_key);
+            let inv = previous.inventory_key();
+            if let Some(record) = by_key.remove(&inv) {
+                self.inventory_misses.remove(&inv);
                 merged.push(record);
                 continue;
             }
 
-            if let Some(record) = adopted.remove(&previous.config_key) {
-                self.inventory_misses.remove(&previous.config_key);
+            if let Some(record) = adopted.remove(&inv) {
+                self.inventory_misses.remove(&inv);
                 merged.push(record);
                 continue;
             }
@@ -494,18 +640,22 @@ impl AppState {
             // the next snapshot resolves a physical serial/unit key, retaining
             // this record through the normal miss grace would show both cards.
             if !previous.is_persistent() {
-                self.inventory_misses.remove(&previous.config_key);
+                self.inventory_misses.remove(&inv);
                 continue;
             }
 
-            let misses = self
-                .inventory_misses
-                .entry(previous.config_key.clone())
-                .or_insert(0);
+            // Cameras reappear under a new capture id after a port change —
+            // do not grace-keep a stale cam-live entry beside the new one.
+            if previous.kind == openlogi_core::device::DeviceKind::Camera {
+                self.inventory_misses.remove(&inv);
+                continue;
+            }
+
+            let misses = self.inventory_misses.entry(inv.clone()).or_insert(0);
             *misses = misses.saturating_add(1);
             if *misses <= INVENTORY_MISS_GRACE {
                 debug!(
-                    key = %previous.config_key,
+                    key = %inv,
                     misses = *misses,
                     "keeping device through transient inventory miss"
                 );
@@ -521,7 +671,7 @@ impl AppState {
         // (identity known only from config) still belong in the carousel.
         merged.extend(adopted.into_values());
         self.inventory_misses
-            .retain(|key, _| merged.iter().any(|record| record.config_key == *key));
+            .retain(|key, _| merged.iter().any(|record| record.inventory_key() == *key));
         // `merged` is `previous-order + newly-appeared`, so re-apply the
         // canonical route order or a new device would be stuck at the end of
         // the carousel permanently.
@@ -1596,8 +1746,13 @@ mod tests {
         let cache = AssetResolver::new();
         let transient_inventory = direct_inventory([0; 4]);
         let (commands, _receiver) = tokio::sync::mpsc::unbounded_channel();
-        let mut state =
-            AppState::with_runtime(Config::default(), &[transient_inventory], &cache, commands);
+        let mut state = AppState::with_runtime(
+            Config::ephemeral(),
+            &[transient_inventory],
+            &cache,
+            &[],
+            commands,
+        );
         let transient_key = "direct:046d:b023:unit:00000000";
 
         assert_eq!(state.device_list.len(), 1);
@@ -1609,6 +1764,7 @@ mod tests {
             &[direct_inventory([0xa3, 0x93, 0xca, 0xe0])],
             &cache,
             &state.config,
+            &[],
         );
         let merged = state.merge_inventory_snapshot(stable_list);
 
@@ -1625,15 +1781,17 @@ mod tests {
         let cache = AssetResolver::new();
         let (commands, _receiver) = tokio::sync::mpsc::unbounded_channel();
         let mut state = AppState::with_runtime(
-            Config::default(),
+            Config::ephemeral(),
             &[direct_inventory([0xa3, 0x93, 0xca, 0xe0])],
             &cache,
+            &[],
             commands,
         );
         let stable_key = "direct:046d:b023:unit:a393cae0";
         assert_eq!(state.device_list[0].config_key, stable_key);
 
-        let transient_list = build_device_list(&[direct_inventory([0; 4])], &cache, &state.config);
+        let transient_list =
+            build_device_list(&[direct_inventory([0; 4])], &cache, &state.config, &[]);
         let merged = state.merge_inventory_snapshot(transient_list);
 
         assert_eq!(merged.len(), 1, "no second card for the half-read probe");
@@ -1650,9 +1808,10 @@ mod tests {
         let cache = AssetResolver::new();
         let (commands, _receiver) = tokio::sync::mpsc::unbounded_channel();
         let mut state = AppState::with_runtime(
-            Config::default(),
+            Config::ephemeral(),
             &[direct_inventory([0xa3, 0x93, 0xca, 0xe0])],
             &cache,
+            &[],
             commands,
         );
 
@@ -1663,6 +1822,7 @@ mod tests {
             ],
             &cache,
             &state.config,
+            &[],
         );
         assert_eq!(both.len(), 2);
         let merged = state.merge_inventory_snapshot(both);
@@ -1681,12 +1841,13 @@ mod tests {
         let cache = AssetResolver::new();
         let (commands, _receiver) = tokio::sync::mpsc::unbounded_channel();
         let mut state = AppState::with_runtime(
-            Config::default(),
+            Config::ephemeral(),
             &[
                 direct_inventory([1, 1, 1, 1]),
                 direct_inventory([2, 2, 2, 2]),
             ],
             &cache,
+            &[],
             commands,
         );
 
@@ -1694,6 +1855,7 @@ mod tests {
             &[direct_inventory([1, 1, 1, 1]), direct_inventory([0; 4])],
             &cache,
             &state.config,
+            &[],
         );
         let merged = state.merge_inventory_snapshot(snapshot);
 
@@ -1718,17 +1880,19 @@ mod tests {
         let cache = AssetResolver::new();
         let (commands, _receiver) = tokio::sync::mpsc::unbounded_channel();
         let mut state = AppState::with_runtime(
-            Config::default(),
+            Config::ephemeral(),
             &[
                 direct_inventory([1, 1, 1, 1]),
                 direct_inventory([2, 2, 2, 2]),
             ],
             &cache,
+            &[],
             commands,
         );
         assert_eq!(state.device_list.len(), 2);
 
-        let transient_list = build_device_list(&[direct_inventory([0; 4])], &cache, &state.config);
+        let transient_list =
+            build_device_list(&[direct_inventory([0; 4])], &cache, &state.config, &[]);
         let merged = state.merge_inventory_snapshot(transient_list);
 
         assert_eq!(merged.len(), 3, "both known cards survive on grace");
@@ -1742,11 +1906,11 @@ mod tests {
     #[test]
     fn historical_transient_lighting_is_not_exposed_without_a_live_record() {
         let transient_key = "direct:046d:b023:unit:00000000";
-        let mut config = Config::default();
+        let mut config = Config::ephemeral();
         config.set_lighting(transient_key, Lighting::default());
         assert!(config.lighting(transient_key).is_some());
         let (commands, _receiver) = tokio::sync::mpsc::unbounded_channel();
-        let state = AppState::with_runtime(config, &[], &AssetResolver::new(), commands);
+        let state = AppState::with_runtime(config, &[], &AssetResolver::new(), &[], commands);
 
         assert!(state.device_list.is_empty());
         assert!(state.lighting_for(transient_key).is_none());
@@ -1815,7 +1979,7 @@ mod tests {
             model_ids: [0xb034, 0, 0],
             extended_model_id: 2,
         };
-        let mut config = Config::default();
+        let mut config = Config::ephemeral();
         config.set_device_identity(
             "2b034",
             DeviceIdentity {
@@ -1827,7 +1991,7 @@ mod tests {
             },
         );
         let (commands, _receiver) = tokio::sync::mpsc::unbounded_channel();
-        let state = AppState::with_runtime(config, &[], &AssetResolver::new(), commands);
+        let state = AppState::with_runtime(config, &[], &AssetResolver::new(), &[], commands);
 
         assert_eq!(
             state.asset_models(),
@@ -1837,7 +2001,7 @@ mod tests {
 
     #[test]
     fn gui_state_saves_and_clears_supported_wheel_resolution() {
-        let mut config = Config::default();
+        let mut config = Config::ephemeral();
         assert!(set_scroll_resolution_if_supported(
             &mut config,
             "mouse",
@@ -1860,7 +2024,7 @@ mod tests {
 
     #[test]
     fn gui_state_ignores_unsupported_wheel_resolution() {
-        let mut config = Config::default();
+        let mut config = Config::ephemeral();
         assert!(!set_scroll_resolution_if_supported(
             &mut config,
             "mouse",
@@ -1868,5 +2032,64 @@ mod tests {
             Some(ScrollResolution::High),
         ));
         assert_eq!(config.scroll_resolution("mouse"), None);
+    }
+
+    fn camera_controls(brightness: i32) -> openlogi_core::config::CameraControls {
+        openlogi_core::config::CameraControls(std::collections::BTreeMap::from([(
+            "brightness".into(),
+            brightness,
+        )]))
+    }
+
+    fn camera_state(config: Config) -> AppState {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        AppState::with_runtime(config, &[], &AssetResolver::new(), &[], tx)
+    }
+
+    #[test]
+    fn migrate_lifts_legacy_port_bound_camera_key() {
+        let mut config = Config::ephemeral();
+        let model = "camera:046d:0893";
+        let legacy = "camera-0x1123000046d0893";
+        config.set_camera_controls(legacy, camera_controls(42));
+        let mut state = camera_state(config);
+
+        state.migrate_legacy_camera_key(model, "0x1123000046d0893");
+
+        assert_eq!(
+            state
+                .config
+                .camera_controls(model)
+                .map(|c| c.0["brightness"]),
+            Some(42)
+        );
+        assert!(state.config.camera_controls(legacy).is_none());
+    }
+
+    #[test]
+    fn migrate_does_not_overwrite_existing_model_settings() {
+        let mut config = Config::ephemeral();
+        let model = "camera:046d:0893";
+        let legacy = "camera-0x1123000046d0893";
+        config.set_camera_controls(model, camera_controls(1));
+        config.set_camera_controls(legacy, camera_controls(99));
+        let mut state = camera_state(config);
+
+        state.migrate_legacy_camera_key(model, "0x1123000046d0893");
+
+        assert_eq!(
+            state
+                .config
+                .camera_controls(model)
+                .map(|c| c.0["brightness"]),
+            Some(1)
+        );
+        assert_eq!(
+            state
+                .config
+                .camera_controls(legacy)
+                .map(|c| c.0["brightness"]),
+            Some(99)
+        );
     }
 }

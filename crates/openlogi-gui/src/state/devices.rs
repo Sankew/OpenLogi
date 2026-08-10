@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use openlogi_agent_core::device_order::{DeviceStableId, PhysicalDeviceKey};
+use openlogi_camera::Camera;
 use openlogi_core::config::{Config, DeviceIdentity};
 use openlogi_core::device::{
     BatteryInfo, Capabilities, DeviceInventory, DeviceKind, DeviceModelInfo, DeviceTransports,
@@ -39,6 +40,10 @@ pub struct DeviceRecord {
     pub serial_number: Option<String>,
     pub unit_id: [u8; 4],
     pub route: Option<DeviceRoute>,
+    /// OS capture id for cameras (AVFoundation uniqueID / DirectShow path).
+    /// Distinct from [`Self::config_key`], which prefers the port-stable USB
+    /// serial. `None` for HID++ devices (those open via [`Self::route`]).
+    pub capture_id: Option<String>,
     pub kind: DeviceKind,
     /// Configuration capabilities from the device's HID++ feature table.
     /// Continuity across sleep lives in the hid layer: its probe cache keeps
@@ -62,6 +67,20 @@ impl DeviceRecord {
     pub(super) fn is_persistent(&self) -> bool {
         self.persistent
     }
+
+    /// Key used to reconcile this record across inventory snapshots.
+    ///
+    /// HID++ devices use [`Self::config_key`]. Cameras may share a model-scoped
+    /// config key (two serial-less units of the same model), so they reconcile
+    /// on the OS capture id instead — settings still persist under `config_key`.
+    pub(super) fn inventory_key(&self) -> String {
+        if self.kind == DeviceKind::Camera
+            && let Some(id) = self.capture_id.as_deref().filter(|s| !s.is_empty())
+        {
+            return format!("cam-live:{id}");
+        }
+        self.config_key.clone()
+    }
 }
 
 /// Build the carousel's device list as the **union** of the live inventory and
@@ -82,6 +101,7 @@ pub(super) fn build_device_list(
     inventories: &[DeviceInventory],
     cache: &AssetResolver,
     config: &Config,
+    cameras: &[Camera],
 ) -> Vec<DeviceRecord> {
     let mut list = Vec::new();
     for inv in inventories {
@@ -137,6 +157,7 @@ pub(super) fn build_device_list(
                 serial_number,
                 unit_id,
                 route,
+                capture_id: None,
                 kind,
                 capabilities: paired.capabilities,
                 slot: paired.slot,
@@ -160,8 +181,65 @@ pub(super) fn build_device_list(
         cache,
         &present_receivers,
     );
+    // Cameras are UVC, not HID++, so they come from a parallel discovery path
+    // (AVFoundation on macOS) rather than the receiver inventory. The caller
+    // enumerates them off the UI thread — discovery is too slow for the render
+    // path — so this assembly stays pure; the merge in
+    // `super::AppState::refresh_inventories` reconciles them by config_key.
+    for camera in cameras {
+        list.push(camera_record(camera, cache));
+    }
     sort_device_list(&mut list);
     list
+}
+
+/// A [`DeviceRecord`] for a Logitech UVC webcam.
+///
+/// [`Camera::config_key`] prefers the USB serial so saved controls survive a
+/// port change; [`DeviceRecord::capture_id`] keeps the OS open id the preview
+/// and UVC layer need. `route: None` / `capabilities: None` keep it out of
+/// every HID++ path — its only detail surface is the live preview tab.
+///
+/// The asset registry keys cameras by their 4-hex USB product id (e.g. the
+/// StreamCam's `0893`), so a webcam's product render resolves through the same
+/// [`AssetResolver`] as HID++ devices once we synthesize a minimal
+/// [`DeviceModelInfo`] from the USB pid.
+fn camera_record(camera: &Camera, cache: &AssetResolver) -> DeviceRecord {
+    let config_key = camera.config_key();
+    let model_info = camera_model_info(camera);
+    let asset = cache.resolve(&model_info, Some(&camera.name));
+    DeviceRecord {
+        model_key: format!("{:04x}", camera.product_id),
+        config_key,
+        persistent: true,
+        display_name: camera.name.clone(),
+        asset,
+        model_info: None,
+        codename: None,
+        serial_number: camera.serial_number.clone(),
+        unit_id: [0; 4],
+        route: None,
+        capture_id: Some(camera.unique_id.clone()),
+        kind: DeviceKind::Camera,
+        capabilities: None,
+        slot: 0,
+        online: true,
+        battery: None,
+    }
+}
+
+/// A minimal [`DeviceModelInfo`] standing in for a UVC camera, carrying just the
+/// USB product id in `model_ids[0]` so [`AssetResolver::resolve`] can match the
+/// registry's camera depots (which key on the 4-hex pid).
+pub(crate) fn camera_model_info(camera: &Camera) -> DeviceModelInfo {
+    DeviceModelInfo {
+        entity_count: 0,
+        serial_number: None,
+        unit_id: [0; 4],
+        transports: DeviceTransports::default(),
+        model_ids: [camera.product_id, 0, 0],
+        extended_model_id: 0,
+    }
 }
 
 /// Append an offline placeholder for every known device not already present in
@@ -288,6 +366,7 @@ fn offline_record(
         serial_number: None,
         unit_id: [0; 4],
         route: None,
+        capture_id: None,
         kind: identity.kind,
         capabilities: Some(identity.capabilities),
         slot: 0,
@@ -333,9 +412,10 @@ pub(super) fn adopt_transient_record(known: &DeviceRecord, live: DeviceRecord) -
         asset: known.asset.clone().or(live.asset),
         model_info: known.model_info.clone().or(live.model_info),
         codename: known.codename.clone().or(live.codename),
-        serial_number: known.serial_number.clone(),
+        serial_number: known.serial_number.clone().or(live.serial_number),
         unit_id: known.unit_id,
         route: live.route,
+        capture_id: live.capture_id.or(known.capture_id.clone()),
         kind: if known.kind == DeviceKind::Unknown {
             live.kind
         } else {
@@ -387,6 +467,7 @@ fn demo_keyboard() -> DeviceRecord {
         serial_number: None,
         unit_id: [0; 4],
         route: None,
+        capture_id: None,
         kind: DeviceKind::Keyboard,
         capabilities: Some(Capabilities {
             lighting: true,
@@ -476,9 +557,9 @@ mod tests {
     use std::collections::HashSet;
 
     use super::{
-        Capabilities, DeviceIdentity, DeviceKind, DeviceModelInfo, DeviceRecord, DeviceTransports,
-        append_offline_known, build_device_list, direct_key_prefix, effective_kind, offline_record,
-        pick_initial_device,
+        Camera, Capabilities, DeviceIdentity, DeviceKind, DeviceModelInfo, DeviceRecord,
+        DeviceTransports, append_offline_known, build_device_list, direct_key_prefix,
+        effective_kind, offline_record, pick_initial_device,
     };
 
     fn paired_device_no_model_info(slot: u8, wpid: Option<u16>) -> PairedDevice {
@@ -539,6 +620,7 @@ mod tests {
             serial_number: None,
             unit_id: [1; 4],
             route: None,
+            capture_id: None,
             kind: DeviceKind::Mouse,
             capabilities: Some(Capabilities::presumed_from_kind(DeviceKind::Mouse)),
             slot: 1,
@@ -567,7 +649,7 @@ mod tests {
     fn no_model_info_uses_receiver_slot_as_config_key() {
         let inv = inventory_with(vec![paired_device_no_model_info(1, Some(0x4076))]);
         let cache = AssetResolver::new();
-        let list = build_device_list(&[inv], &cache, &Config::default());
+        let list = build_device_list(&[inv], &cache, &Config::default(), &[]);
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].config_key, "receiver:da2699e1:slot:1");
         assert_eq!(list[0].model_key, "wpid4076");
@@ -579,7 +661,7 @@ mod tests {
     fn no_model_info_falls_back_to_slot_when_no_wpid() {
         let inv = inventory_with(vec![paired_device_no_model_info(3, None)]);
         let cache = AssetResolver::new();
-        let list = build_device_list(&[inv], &cache, &Config::default());
+        let list = build_device_list(&[inv], &cache, &Config::default(), &[]);
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].config_key, "receiver:da2699e1:slot:3");
         assert_eq!(list[0].model_key, "slot3");
@@ -589,7 +671,7 @@ mod tests {
     fn no_model_info_display_name_falls_back_to_slot() {
         let inv = inventory_with(vec![paired_device_no_model_info(2, Some(0x4051))]);
         let cache = AssetResolver::new();
-        let list = build_device_list(&[inv], &cache, &Config::default());
+        let list = build_device_list(&[inv], &cache, &Config::default(), &[]);
         assert_eq!(list[0].display_name, "Slot 2");
     }
 
@@ -653,6 +735,7 @@ mod tests {
             &[direct_inventory(model_info(2, 0xb034))],
             &cache,
             &Config::default(),
+            &[],
         );
 
         assert_eq!(list.len(), 1);
@@ -816,5 +899,100 @@ mod tests {
             effective_kind(DeviceKind::Mouse, Some(DeviceKind::Unknown)),
             DeviceKind::Mouse
         );
+    }
+
+    #[test]
+    fn webcams_are_appended_as_camera_records() {
+        // A discovered UVC webcam joins the list as a routeless Camera record.
+        // With a USB serial the config key is port-stable; capture_id keeps the
+        // OS open id the preview needs.
+        let camera = Camera {
+            name: "Logitech StreamCam".to_string(),
+            unique_id: "0x1123000046d0893".to_string(),
+            serial_number: Some("ABC123".to_string()),
+            vendor_id: 0x046d,
+            product_id: 0x0893,
+            max_resolution: Some((1920, 1080)),
+            max_fps: Some(60),
+        };
+        let cache = AssetResolver::new();
+        let list = build_device_list(&[], &cache, &Config::default(), &[camera]);
+
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].kind, DeviceKind::Camera);
+        assert_eq!(list[0].config_key, "camera:046d:0893:serial:abc123");
+        assert_eq!(list[0].capture_id.as_deref(), Some("0x1123000046d0893"));
+        assert_eq!(list[0].serial_number.as_deref(), Some("ABC123"));
+        assert_eq!(list[0].display_name, "Logitech StreamCam");
+        assert!(list[0].route.is_none());
+        assert!(list[0].capabilities.is_none());
+        assert!(list[0].online);
+    }
+
+    #[test]
+    fn webcam_without_serial_uses_model_scoped_key() {
+        let camera = Camera {
+            name: "Logitech C920".to_string(),
+            unique_id: "0x14110000046d082d".to_string(),
+            serial_number: None,
+            vendor_id: 0x046d,
+            product_id: 0x082d,
+            max_resolution: None,
+            max_fps: None,
+        };
+        let cache = AssetResolver::new();
+        let list = build_device_list(&[], &cache, &Config::default(), &[camera]);
+        // Port-stable even without a serial: settings follow the model, not the
+        // OS capture id (which embeds the USB location on macOS/Windows).
+        assert_eq!(list[0].config_key, "camera:046d:082d");
+        assert_eq!(list[0].capture_id.as_deref(), Some("0x14110000046d082d"));
+    }
+
+    #[test]
+    fn webcam_config_key_survives_a_usb_port_change() {
+        let port_a = Camera {
+            name: "Logitech StreamCam".to_string(),
+            unique_id: "0x1123000046d0893".to_string(),
+            serial_number: Some("SN42".to_string()),
+            vendor_id: 0x046d,
+            product_id: 0x0893,
+            max_resolution: None,
+            max_fps: None,
+        };
+        let port_b = Camera {
+            unique_id: "0x14110000046d0893".to_string(),
+            ..port_a.clone()
+        };
+        let cache = AssetResolver::new();
+        let a = build_device_list(&[], &cache, &Config::default(), &[port_a]);
+        let b = build_device_list(&[], &cache, &Config::default(), &[port_b]);
+        assert_eq!(a[0].config_key, b[0].config_key);
+        assert_ne!(a[0].capture_id, b[0].capture_id);
+    }
+
+    #[test]
+    fn two_serial_less_same_model_cameras_stay_distinct() {
+        // Settings share the model key (no USB serial to go on); inventory
+        // identity uses capture_id so both still appear in the list.
+        let a = Camera {
+            name: "Logitech StreamCam".to_string(),
+            unique_id: "0x1123000046d0893".to_string(),
+            serial_number: None,
+            vendor_id: 0x046d,
+            product_id: 0x0893,
+            max_resolution: None,
+            max_fps: None,
+        };
+        let b = Camera {
+            unique_id: "0x14110000046d0893".to_string(),
+            ..a.clone()
+        };
+        let cache = AssetResolver::new();
+        let list = build_device_list(&[], &cache, &Config::default(), &[a, b]);
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].config_key, list[1].config_key);
+        assert_eq!(list[0].config_key, "camera:046d:0893");
+        assert_ne!(list[0].inventory_key(), list[1].inventory_key());
+        assert_ne!(list[0].capture_id, list[1].capture_id);
     }
 }
